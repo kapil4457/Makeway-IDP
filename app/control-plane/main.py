@@ -63,7 +63,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Makeway API",
     version="0.1.0",
-    summary="AI-Assisted Internal Developer Platform",
+    summary="",
     description=API_DESCRIPTION,
     contact={"name": "Makeway Platform Team"},
     openapi_tags=API_TAGS,

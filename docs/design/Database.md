@@ -62,7 +62,8 @@ Top-level unit Makeway manages. One App = one GitHub monorepo.
 appId (PK)
 appName
 teamId (FK → Team)
-repoUrl
+appRepoUrl
+gitOpsRepoUrl
 createdAt / createdBy
 modifiedAt / modifiedBy
 ```
