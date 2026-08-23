@@ -8,7 +8,9 @@ from exceptions.base import UnauthorizedException
 
 from repository.user_repository import UserRepository
 from service.auth_service import AuthService
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
+bearer_scheme = HTTPBearer()
 
 
 def get_user_repository(session: Session = Depends(get_session)) -> UserRepository:
@@ -19,7 +21,9 @@ def get_auth_service(repository: UserRepository = Depends(get_user_repository)) 
     return AuthService(repository)
 
 
-def get_current_user( request: Request, repository: UserRepository = Depends(get_user_repository)) -> User:
+def get_current_user( request: Request,
+                      repository: UserRepository = Depends(get_user_repository), 
+                      credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme)) -> User:
 
     user_id = getattr( request.state, "user_id", None)
 
