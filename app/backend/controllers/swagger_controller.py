@@ -10,7 +10,7 @@ SWAGGER_UI_PATH = Path(__file__).parent.parent / "swagger" / "swagger-ui.html"
 
 @router.get("/docs", include_in_schema=False)
 def get_swagger_ui() -> HTMLResponse:
-    """Serve the Forge-branded Swagger UI.
+    """Serve the Makeway-branded Swagger UI.
 
     The UI loads the OpenAPI schema that FastAPI generates from the code
     (`/openapi.json`), so the documentation can never drift from the models.

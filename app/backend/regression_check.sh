@@ -15,7 +15,7 @@ check() { # name expected actual
 
 echo "== Docs endpoints =="
 check "GET /docs -> 200" 200 "$(curl -s -o /dev/null -w '%{http_code}' "$BASE/docs")"
-check "GET /docs has brand header" "yes" "$(curl -s "$BASE/docs" | grep -q 'forge-header' && echo yes || echo no)"
+check "GET /docs has brand header" "yes" "$(curl -s "$BASE/docs" | grep -q 'makeway-header' && echo yes || echo no)"
 check "GET /docs loads generated schema" "yes" "$(curl -s "$BASE/docs" | grep -q "url: '/openapi.json'" && echo yes || echo no)"
 check "GET /swagger/docs -> 308 to /docs" "$BASE/docs" "$(curl -s -o /dev/null -w '%{redirect_url}' "$BASE/swagger/docs")"
 check "GET /swagger/openapi.json -> 308 to /openapi.json" "$BASE/openapi.json" "$(curl -s -o /dev/null -w '%{redirect_url}' "$BASE/swagger/openapi.json")"
@@ -23,7 +23,7 @@ check "GET /redoc -> 404 (disabled)" 404 "$(curl -s -o /dev/null -w '%{http_code
 
 echo "== Generated schema =="
 SCHEMA="$(curl -s "$BASE/openapi.json")"
-check "schema title" "Forge AI API" "$(echo "$SCHEMA" | python -c 'import json,sys; print(json.load(sys.stdin)["info"]["title"])')"
+check "schema title" "Makeway API" "$(echo "$SCHEMA" | python -c 'import json,sys; print(json.load(sys.stdin)["info"]["title"])')"
 check "StorageConfig schema exists" "yes" "$(echo "$SCHEMA" | python -c 'import json,sys; s=json.load(sys.stdin); print("yes" if "StorageConfig" in s["components"]["schemas"] else "no")')"
 check "AppConfig has model example" "order-service" "$(echo "$SCHEMA" | python -c 'import json,sys; s=json.load(sys.stdin); print(s["components"]["schemas"]["AppConfig"]["examples"][0]["app_name"])')"
 check "app_name is required" "yes" "$(echo "$SCHEMA" | python -c 'import json,sys; s=json.load(sys.stdin); print("yes" if "app_name" in s["components"]["schemas"]["AppConfig"].get("required",[]) else "no")')"

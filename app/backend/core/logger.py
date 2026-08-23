@@ -1,5 +1,5 @@
 """
-Central logging configuration for Forge AI.
+Central logging configuration for Makeway.
 
 Provides JSON-structured logging with correlation ID support for async-safe
 request tracing across API routes, workers, and CLI commands.
@@ -89,7 +89,7 @@ THIRD_PARTY_NOISE = {
 DEFAULT_LOG_DIR: Path = Path("logs")
 DEFAULT_MAX_BYTES: int = 10 * 1024 * 1024  # 10 MB
 DEFAULT_BACKUP_COUNT: int = 5
-DEFAULT_LOG_FILENAME: str = "forge.jsonl"
+DEFAULT_LOG_FILENAME: str = "makeway.jsonl"
 
 
 def setup_logging() -> None:
@@ -102,16 +102,16 @@ def setup_logging() -> None:
 
     Environment variables:
         LOG_LEVEL          — logging level (default: "INFO")
-        FORGE_LOG_DIR      — directory for persisted logs (default: "logs/")
-        FORGE_LOG_MAX_BYTES — max bytes per file before rotation (default: 10 MB)
-        FORGE_LOG_BACKUPS  — number of rotated files to keep (default: 5)
+        MAKEWAY_LOG_DIR      — directory for persisted logs (default: "logs/")
+        MAKEWAY_LOG_MAX_BYTES — max bytes per file before rotation (default: 10 MB)
+        MAKEWAY_LOG_BACKUPS  — number of rotated files to keep (default: 5)
     """
     level_name = os.getenv("LOG_LEVEL", "INFO").upper()
     level = getattr(logging, level_name, logging.INFO)
 
-    log_dir = Path(os.getenv("FORGE_LOG_DIR", str(DEFAULT_LOG_DIR)))
-    max_bytes = int(os.getenv("FORGE_LOG_MAX_BYTES", str(DEFAULT_MAX_BYTES)))
-    backup_count = int(os.getenv("FORGE_LOG_BACKUPS", str(DEFAULT_BACKUP_COUNT)))
+    log_dir = Path(os.getenv("MAKEWAY_LOG_DIR", str(DEFAULT_LOG_DIR)))
+    max_bytes = int(os.getenv("MAKEWAY_LOG_MAX_BYTES", str(DEFAULT_MAX_BYTES)))
+    backup_count = int(os.getenv("MAKEWAY_LOG_BACKUPS", str(DEFAULT_BACKUP_COUNT)))
 
     root = logging.getLogger()
     root.setLevel(level)

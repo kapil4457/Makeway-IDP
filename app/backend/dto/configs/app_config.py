@@ -5,7 +5,7 @@ from .env_config import EnvConfig
 
 
 class AppConfig(pydantic.BaseModel):
-    """Desired state for a new application onboarded onto the Forge platform."""
+    """Desired state for a new application onboarded onto the Makeway platform."""
 
     model_config = ConfigDict(
         json_schema_extra={

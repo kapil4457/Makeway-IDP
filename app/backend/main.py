@@ -8,11 +8,11 @@ from core.logger import get_logger, set_request_id, setup_logging
 logger = get_logger(__name__)
 
 API_DESCRIPTION = """
-Forge is an AI-Assisted Internal Developer Platform (IDP).
+Makeway is an AI-Assisted Internal Developer Platform (IDP).
 
 Use this API to onboard applications onto the platform: declare the desired
 state (services, databases, caches, storage, observability, messaging) and
-Forge reconciles it into real infrastructure through Terraform, GitOps,
+Makeway reconciles it into real infrastructure through Terraform, GitOps,
 and Vault.
 
 ### Conventions
@@ -28,7 +28,7 @@ and Vault.
 API_TAGS = [
     {
         "name": "App Management",
-        "description": "Onboard and manage applications on the Forge platform.",
+        "description": "Onboard and manage applications on the Makeway platform.",
     },
 ]
 
@@ -36,17 +36,17 @@ API_TAGS = [
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     setup_logging()
-    logger.info("Forge AI starting up")
+    logger.info("Makeway starting up")
     yield
-    logger.info("Forge AI shutting down")
+    logger.info("Makeway shutting down")
 
 
 app = FastAPI(
-    title="Forge AI API",
+    title="Makeway API",
     version="0.1.0",
     summary="AI-Assisted Internal Developer Platform",
     description=API_DESCRIPTION,
-    contact={"name": "Forge Platform Team"},
+    contact={"name": "Makeway Platform Team"},
     openapi_tags=API_TAGS,
     # The branded Swagger UI is served by swagger_controller at /docs.
     docs_url=None,

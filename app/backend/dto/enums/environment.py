@@ -2,7 +2,7 @@ from enum import Enum
 
 
 class Environment(str, Enum):
-    """Deployment environments managed by the Forge platform."""
+    """Deployment environments managed by the Makeway platform."""
 
     DEV = "dev"
     UAT = "uat"

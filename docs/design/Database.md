@@ -1,6 +1,6 @@
-# Forge — Database Schema
+# Makeway — Database Schema
 
-**Database:** PostgreSQL (single instance). Relational data with heavy joins across Apps/Environments/Services/Capabilities/Jobs `jsonb` columns used for variable-shape fields (config, output, raw payloads).
+**Database:** PostgreSQL.
 
 ---
 
@@ -21,7 +21,7 @@ modifiedAt / modifiedBy
 
 ## User
 
-Individual developer using Forge.
+Individual developer using Makeway.
 
 ```
 userId (PK)
@@ -55,7 +55,7 @@ history when a user leaves a team instead of losing the record.
 
 ## App
 
-Top-level unit Forge manages. One App = one GitHub monorepo.
+Top-level unit Makeway manages. One App = one GitHub monorepo.
 
 ```
 appId (PK)

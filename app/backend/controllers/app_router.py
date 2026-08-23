@@ -13,7 +13,7 @@ router = APIRouter(prefix="/app", tags=["App Management"])
     "/create",
     summary="Create a new app",
     description=(
-        "Registers the desired state for a new application. Forge reconciles the "
+        "Registers the desired state for a new application. Makeway reconciles the "
         "requested capabilities (services, database, cache, storage, observability, "
         "messaging) into real infrastructure asynchronously. The operation is "
         "idempotent — retrying with the same payload never duplicates resources."

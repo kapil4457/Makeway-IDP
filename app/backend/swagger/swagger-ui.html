@@ -3,32 +3,32 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Forge AI API Docs</title>
+    <title>Makeway AI API Docs</title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui.css">
     <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>⚒️</text></svg>">
     <style>
         :root {
-            --forge-bg: #f8fafc;
-            --forge-surface: #ffffff;
-            --forge-header: #0f172a;
-            --forge-accent: #f97316;
-            --forge-border: #e2e8f0;
-            --forge-text: #1e293b;
-            --forge-muted: #64748b;
+            --makeway-bg: #f8fafc;
+            --makeway-surface: #ffffff;
+            --makeway-header: #0f172a;
+            --makeway-accent: #f97316;
+            --makeway-border: #e2e8f0;
+            --makeway-text: #1e293b;
+            --makeway-muted: #64748b;
         }
 
         * { box-sizing: border-box; }
 
         body {
             margin: 0;
-            background: var(--forge-bg);
-            color: var(--forge-text);
+            background: var(--makeway-bg);
+            color: var(--makeway-text);
             font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI",
                 Roboto, "Helvetica Neue", Arial, sans-serif;
         }
 
         /* Brand header (replaces the default Swagger topbar) */
-        .forge-header {
+        .makeway-header {
             position: sticky;
             top: 0;
             z-index: 100;
@@ -36,25 +36,25 @@
             align-items: center;
             gap: 12px;
             padding: 14px 32px;
-            background: var(--forge-header);
+            background: var(--makeway-header);
             color: #ffffff;
         }
-        .forge-header .logo {
+        .makeway-header .logo {
             display: grid;
             place-items: center;
             width: 30px;
             height: 30px;
             border-radius: 8px;
-            background: var(--forge-accent);
+            background: var(--makeway-accent);
             font-size: 16px;
         }
-        .forge-header h1 {
+        .makeway-header h1 {
             margin: 0;
             font-size: 17px;
             font-weight: 600;
             letter-spacing: 0.2px;
         }
-        .forge-header .tag {
+        .makeway-header .tag {
             margin-left: 8px;
             font-size: 12px;
             font-weight: 400;
@@ -75,22 +75,22 @@
         .swagger-ui .info .title {
             font-family: inherit;
             font-weight: 700;
-            color: var(--forge-text);
+            color: var(--makeway-text);
         }
         .swagger-ui .info .title small {
-            background: var(--forge-accent);
+            background: var(--makeway-accent);
             border-radius: 6px;
         }
         .swagger-ui .info p,
-        .swagger-ui .info li { color: var(--forge-muted); font-size: 14px; }
+        .swagger-ui .info li { color: var(--makeway-muted); font-size: 14px; }
 
         /* Server / scheme bar */
         .swagger-ui .scheme-container {
             max-width: 1180px;
             margin: 16px auto;
             padding: 12px 24px;
-            background: var(--forge-surface);
-            border: 1px solid var(--forge-border);
+            background: var(--makeway-surface);
+            border: 1px solid var(--makeway-border);
             border-radius: 8px;
             box-shadow: none;
         }
@@ -98,12 +98,12 @@
         /* Tag sections and operation cards */
         .swagger-ui .opblock-tag {
             font-weight: 600;
-            color: var(--forge-text);
-            border-bottom: 1px solid var(--forge-border);
+            color: var(--makeway-text);
+            border-bottom: 1px solid var(--makeway-border);
         }
         .swagger-ui .opblock {
             margin-bottom: 10px;
-            border: 1px solid var(--forge-border);
+            border: 1px solid var(--makeway-border);
             border-radius: 8px;
             box-shadow: 0 1px 2px rgba(15, 23, 42, 0.05);
         }
@@ -112,27 +112,27 @@
         /* Filter input */
         .swagger-ui .filter-container input {
             padding: 8px 12px;
-            border: 1px solid var(--forge-border);
+            border: 1px solid var(--makeway-border);
             border-radius: 6px;
         }
 
         /* Models section */
         .swagger-ui section.models {
-            border: 1px solid var(--forge-border);
+            border: 1px solid var(--makeway-border);
             border-radius: 8px;
-            background: var(--forge-surface);
+            background: var(--makeway-surface);
         }
         .swagger-ui section.models h4 {
             font-family: inherit;
             font-weight: 600;
-            color: var(--forge-text);
+            color: var(--makeway-text);
         }
     </style>
 </head>
 <body>
-    <header class="forge-header">
+    <header class="makeway-header">
         <span class="logo">⚒️</span>
-        <h1>Forge AI<span class="tag">API Documentation</span></h1>
+        <h1>Makeway<span class="tag">API Documentation</span></h1>
     </header>
 
     <div id="swagger-ui"></div>
