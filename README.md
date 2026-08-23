@@ -12,7 +12,7 @@ Self-service internal developer platform. A developer requests an app with a set
 6. ArgoCD syncs the app to the target cluster.
 7. Status updates flow back to Postgres at each step.
 
-Schema: see `database-schema.md`.
+Schema: see `Database.md` in `docs > design`.
 
 ## Orchestration
 
@@ -89,20 +89,3 @@ Step Functions: pay-per-state-transition, fully managed, AWS-native. Chosen for 
 - **Delivery:** GitHub Actions, ArgoCD, Helm
 - **Secrets:** AWS Secrets Manager
 - **Networking:** AWS Load Balancer Controller, Kubernetes NetworkPolicy, Security Groups
-
-## Repo Structure
-
-```
-makeway/
-├── control-plane/        FastAPI service, domain model, API
-├── terraform/
-│   ├── bootstrap/          remote state backend
-│   ├── eks/                  base cluster
-│   └── modules/               capability modules
-├── services/                golden-path service templates
-├── step-functions/         state machine, Lambda handlers, Fargate task entrypoint
-├── portal/                  CLI
-└── docs/
-    ├── database-schema.md
-    └── roadmap.md
-```
