@@ -6,9 +6,9 @@ def utc_now() -> datetime:
 
 
 class SharedAudit(SQLModel):
-    createdBy: str
+    createdBy: str = Field(default="SYSTEM",nullable=False)
     createdAt: datetime = Field(default_factory=utc_now)
-    modifiedBy: str
+    modifiedBy: str =  Field(default="SYSTEM",nullable=False)
     modifiedAt: datetime = Field(
         default_factory=utc_now,
         sa_column_kwargs={"onupdate": utc_now},

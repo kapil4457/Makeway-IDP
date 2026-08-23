@@ -27,7 +27,7 @@ engine = create_engine(
 )
 
 
-def get_db() -> Generator[Session, None, None]:
+def get_session() -> Generator[Session, None, None]:
     """
     FastAPI dependency. Yields a session, guarantees close on request end.
 

@@ -2,6 +2,7 @@
 .env
 .env.*
 !.env.example
+env/
 *.pem
 *.key
 *.p12
@@ -74,3 +75,5 @@ CLAUDE.md
 
 # ---- Draw.io ----
 *.bkp
+
+temp/*

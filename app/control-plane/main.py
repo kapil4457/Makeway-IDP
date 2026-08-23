@@ -2,13 +2,15 @@ import uuid
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
-from sqlmodel import SQLModel
-from database.db_engine import engine, dispose_engine
-import database.models
+from database.db_engine import  dispose_engine
 
 from controllers.app_router import router as app_router
+from controllers.cluster_router import router as cluster_router
 from controllers.swagger_controller import router as swagger_router
+from controllers.auth_router import router as auth_router
+from auth.interceptor import AuthInterceptor
 from core.logger import get_logger, set_request_id, setup_logging
+from core.exception_handlers import register_exception_handlers
 
 
 logger = get_logger(__name__)
@@ -39,6 +41,10 @@ API_TAGS = [
     {
         "name": "User Management",
         "description": "Manage users, teams, and access control for applications."
+    },
+    {
+        "name": "Cluster Management",
+        "description": "Manage clusters and their configurations."
     }
 ]
 
@@ -47,10 +53,6 @@ API_TAGS = [
 async def lifespan(app: FastAPI):
     setup_logging()
     logger.info("Makeway starting up")
-
-    # Local/dev convenience only. In staging/prod, schema changes are
-    # applied via Alembic migrations, not create_all.
-    SQLModel.metadata.create_all(engine)
 
     yield
 
@@ -71,6 +73,10 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+register_exception_handlers(app)
+app.add_middleware(
+    AuthInterceptor,
+)
 
 @app.middleware("http")
 async def request_id_middleware(request: Request, call_next):
@@ -82,4 +88,6 @@ async def request_id_middleware(request: Request, call_next):
 
 
 app.include_router(app_router)
+app.include_router(cluster_router)
+app.include_router(auth_router)
 app.include_router(swagger_router)
