@@ -3,67 +3,119 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
     <title>Makeway AI API Docs</title>
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui.css">
-    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>⚒️</text></svg>">
+
+    <link rel="stylesheet"
+          href="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui.css">
+
+    <!-- Makeway favicon -->
+    <link rel="icon"
+          type="image/svg+xml"
+          href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 200'%3E%3Crect width='200' height='200' rx='40' fill='%230B1120'/%3E%3Cpath d='M60 140V50l40 50 40-50v90' stroke='%2338bdf8' stroke-width='16' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3Ccircle cx='60' cy='140' r='10' fill='%230B1120' stroke='%2306b6d4' stroke-width='4'/%3E%3Ccircle cx='60' cy='50' r='10' fill='%230B1120' stroke='%2338bdf8' stroke-width='4'/%3E%3Ccircle cx='100' cy='100' r='10' fill='%230B1120' stroke='%23818cf8' stroke-width='4'/%3E%3Ccircle cx='140' cy='50' r='10' fill='%230B1120' stroke='%23a78bfa' stroke-width='4'/%3E%3Ccircle cx='140' cy='140' r='10' fill='%230B1120' stroke='%23c084fc' stroke-width='4'/%3E%3C/svg%3E">
+
     <style>
         :root {
             --makeway-bg: #f8fafc;
             --makeway-surface: #ffffff;
-            --makeway-header: #0f172a;
-            --makeway-accent: #f97316;
+            --makeway-header: #0b1120;
+            --makeway-accent: #38bdf8;
             --makeway-border: #e2e8f0;
             --makeway-text: #1e293b;
             --makeway-muted: #64748b;
         }
 
-        * { box-sizing: border-box; }
+        * {
+            box-sizing: border-box;
+        }
 
         body {
             margin: 0;
             background: var(--makeway-bg);
             color: var(--makeway-text);
-            font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI",
-                Roboto, "Helvetica Neue", Arial, sans-serif;
+            font-family:
+                "Inter",
+                -apple-system,
+                BlinkMacSystemFont,
+                "Segoe UI",
+                Roboto,
+                "Helvetica Neue",
+                Arial,
+                sans-serif;
         }
 
-        /* Brand header (replaces the default Swagger topbar) */
+        /* ========================================
+           MAKEWAY HEADER
+           ======================================== */
+
         .makeway-header {
             position: sticky;
             top: 0;
             z-index: 100;
+
+            display: flex;
+            align-items: center;
+
+            height: 64px;
+            padding: 0 32px;
+
+            background: var(--makeway-header);
+            color: #ffffff;
+
+            border-bottom: 1px solid #1e293b;
+        }
+
+        .makeway-header .brand {
             display: flex;
             align-items: center;
             gap: 12px;
-            padding: 14px 32px;
-            background: var(--makeway-header);
-            color: #ffffff;
         }
+
         .makeway-header .logo {
-            display: grid;
-            place-items: center;
-            width: 30px;
-            height: 30px;
-            border-radius: 8px;
-            background: var(--makeway-accent);
-            font-size: 16px;
+            width: 38px;
+            height: 38px;
+            flex-shrink: 0;
         }
+
+        .makeway-header .brand-text {
+            display: flex;
+            align-items: baseline;
+            gap: 10px;
+        }
+
         .makeway-header h1 {
             margin: 0;
-            font-size: 17px;
-            font-weight: 600;
-            letter-spacing: 0.2px;
+
+            font-size: 20px;
+            line-height: 1;
+            font-weight: 800;
+            letter-spacing: -0.5px;
         }
+
+        .makeway-header h1 .make {
+            color: #ffffff;
+        }
+
+        .makeway-header h1 .way {
+            color: #38bdf8;
+        }
+
         .makeway-header .tag {
-            margin-left: 8px;
-            font-size: 12px;
-            font-weight: 400;
-            color: #94a3b8;
+            font-size: 11px;
+            font-weight: 600;
+            letter-spacing: 1.5px;
+            color: #64748b;
         }
 
-        .swagger-ui .topbar { display: none; }
+        /* Hide default Swagger header */
+        .swagger-ui .topbar {
+            display: none;
+        }
 
-        /* Centered, readable content column */
+        /* ========================================
+           SWAGGER CONTENT
+           ======================================== */
+
         .swagger-ui .wrapper {
             max-width: 1180px;
             margin: 0 auto;
@@ -71,57 +123,85 @@
         }
 
         /* Info block */
-        .swagger-ui .info { margin: 28px 0 8px; }
+
+        .swagger-ui .info {
+            margin: 28px 0 8px;
+        }
+
         .swagger-ui .info .title {
             font-family: inherit;
             font-weight: 700;
             color: var(--makeway-text);
         }
+
         .swagger-ui .info .title small {
-            background: var(--makeway-accent);
+            background: #38bdf8;
             border-radius: 6px;
         }
+
         .swagger-ui .info p,
-        .swagger-ui .info li { color: var(--makeway-muted); font-size: 14px; }
+        .swagger-ui .info li {
+            color: var(--makeway-muted);
+            font-size: 14px;
+        }
 
         /* Server / scheme bar */
+
         .swagger-ui .scheme-container {
             max-width: 1180px;
             margin: 16px auto;
             padding: 12px 24px;
+
             background: var(--makeway-surface);
+
             border: 1px solid var(--makeway-border);
             border-radius: 8px;
+
             box-shadow: none;
         }
 
-        /* Tag sections and operation cards */
+        /* Tags */
+
         .swagger-ui .opblock-tag {
             font-weight: 600;
             color: var(--makeway-text);
             border-bottom: 1px solid var(--makeway-border);
         }
+
+        /* Operation cards */
+
         .swagger-ui .opblock {
             margin-bottom: 10px;
+
             border: 1px solid var(--makeway-border);
             border-radius: 8px;
-            box-shadow: 0 1px 2px rgba(15, 23, 42, 0.05);
-        }
-        .swagger-ui .opblock .opblock-summary { border-radius: 8px; }
 
-        /* Filter input */
+            box-shadow:
+                0 1px 2px rgba(15, 23, 42, 0.05);
+        }
+
+        .swagger-ui .opblock .opblock-summary {
+            border-radius: 8px;
+        }
+
+        /* Filter */
+
         .swagger-ui .filter-container input {
             padding: 8px 12px;
+
             border: 1px solid var(--makeway-border);
             border-radius: 6px;
         }
 
-        /* Models section */
+        /* Models */
+
         .swagger-ui section.models {
             border: 1px solid var(--makeway-border);
             border-radius: 8px;
+
             background: var(--makeway-surface);
         }
+
         .swagger-ui section.models h4 {
             font-family: inherit;
             font-weight: 600;
@@ -129,37 +209,148 @@
         }
     </style>
 </head>
+
 <body>
+
+    <!-- ========================================
+         MAKEWAY BRAND HEADER
+         ======================================== -->
+
     <header class="makeway-header">
-        <span class="logo">⚒️</span>
-        <h1>Makeway<span class="tag">API Documentation</span></h1>
+
+        <div class="brand">
+
+            <!-- Logo mark only -->
+            <svg
+                class="logo"
+                xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 200 200"
+                aria-label="Makeway"
+            >
+                <defs>
+                    <linearGradient
+                        id="pipelineGrad"
+                        x1="0%"
+                        y1="100%"
+                        x2="100%"
+                        y2="0%"
+                    >
+                        <stop offset="0%" stop-color="#06b6d4"/>
+                        <stop offset="25%" stop-color="#38bdf8"/>
+                        <stop offset="75%" stop-color="#818cf8"/>
+                        <stop offset="100%" stop-color="#a78bfa"/>
+                    </linearGradient>
+                </defs>
+
+                <path
+                    d="M60 140V50l40 50 40-50v90"
+                    stroke="url(#pipelineGrad)"
+                    stroke-width="16"
+                    fill="none"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                />
+
+                <circle
+                    cx="60"
+                    cy="140"
+                    r="10"
+                    fill="#0B1120"
+                    stroke="#06b6d4"
+                    stroke-width="4"
+                />
+
+                <circle
+                    cx="60"
+                    cy="50"
+                    r="10"
+                    fill="#0B1120"
+                    stroke="#38bdf8"
+                    stroke-width="4"
+                />
+
+                <circle
+                    cx="100"
+                    cy="100"
+                    r="10"
+                    fill="#0B1120"
+                    stroke="#818cf8"
+                    stroke-width="4"
+                />
+
+                <circle
+                    cx="140"
+                    cy="50"
+                    r="10"
+                    fill="#0B1120"
+                    stroke="#a78bfa"
+                    stroke-width="4"
+                />
+
+                <circle
+                    cx="140"
+                    cy="140"
+                    r="10"
+                    fill="#0B1120"
+                    stroke="#c084fc"
+                    stroke-width="4"
+                />
+            </svg>
+
+            <div class="brand-text">
+                <h1>
+                    <span class="make">MAKE</span><span class="way">WAY</span>
+                </h1>
+
+                <span class="tag">
+                    INTERNAL DEVELOPER PLATFORM
+                </span>
+            </div>
+
+        </div>
+
     </header>
+
+    <!-- Swagger UI -->
 
     <div id="swagger-ui"></div>
 
     <script src="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui-bundle.js"></script>
+
     <script>
         SwaggerUIBundle({
-            // Schema is generated by FastAPI from the Pydantic models,
-            // so the documentation can never drift from the code.
-            url: '/openapi.json',
-            dom_id: '#swagger-ui',
-            layout: 'BaseLayout',
+            url: "/openapi.json",
+
+            dom_id: "#swagger-ui",
+
+            layout: "BaseLayout",
+
             presets: [
                 SwaggerUIBundle.presets.apis,
                 SwaggerUIBundle.SwaggerUIStandalonePreset
             ],
+
             deepLinking: true,
-            docExpansion: 'list',
+
+            docExpansion: "list",
+
             filter: true,
+
             tryItOutEnabled: true,
+
             displayRequestDuration: true,
+
             persistAuthorization: true,
+
             showExtensions: true,
+
             showCommonExtensions: true,
+
             defaultModelsExpandDepth: 1,
+
             defaultModelExpandDepth: 1
         });
     </script>
+
 </body>
 </html>

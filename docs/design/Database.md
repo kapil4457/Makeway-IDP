@@ -26,6 +26,7 @@ Individual developer using Makeway.
 ```
 userId (PK)
 email (unique)
+password (hash)
 createdAt / createdBy
 modifiedAt / modifiedBy
 ```

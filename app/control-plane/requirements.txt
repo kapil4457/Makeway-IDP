@@ -1,2 +1,5 @@
 boto3
 sqlmodel
+fastapi
+uvicorn
+psycopg2-binary

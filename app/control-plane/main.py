@@ -1,9 +1,15 @@
+import uuid
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI, Request
-from fastapi.concurrency import asynccontextmanager
+from sqlmodel import SQLModel
+from database.db_engine import engine, dispose_engine
+import database.models
 
 from controllers.app_router import router as app_router
 from controllers.swagger_controller import router as swagger_router
 from core.logger import get_logger, set_request_id, setup_logging
+
 
 logger = get_logger(__name__)
 
@@ -30,6 +36,10 @@ API_TAGS = [
         "name": "App Management",
         "description": "Onboard and manage applications on the Makeway platform.",
     },
+    {
+        "name": "User Management",
+        "description": "Manage users, teams, and access control for applications."
+    }
 ]
 
 
@@ -37,8 +47,15 @@ API_TAGS = [
 async def lifespan(app: FastAPI):
     setup_logging()
     logger.info("Makeway starting up")
+
+    # Local/dev convenience only. In staging/prod, schema changes are
+    # applied via Alembic migrations, not create_all.
+    SQLModel.metadata.create_all(engine)
+
     yield
+
     logger.info("Makeway shutting down")
+    dispose_engine()
 
 
 app = FastAPI(
@@ -57,10 +74,10 @@ app = FastAPI(
 
 @app.middleware("http")
 async def request_id_middleware(request: Request, call_next):
-    request_id = request.headers.get("X-Request-ID", None)
-    if request_id:
-        set_request_id(request_id)
+    request_id = request.headers.get("X-Request-ID") or str(uuid.uuid4())
+    set_request_id(request_id)
     response = await call_next(request)
+    response.headers["X-Request-ID"] = request_id
     return response
 
 
