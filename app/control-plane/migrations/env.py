@@ -13,7 +13,6 @@ from database.models.app import App
 from database.models.capability import Capability
 from database.models.cluster import Cluster
 from database.models.deployment_setup import DeploymentSetup
-from database.models.environment import Environment
 from database.models.infra_requirement import InfraRequirement
 from database.models.job import Job
 from database.models.namespace import Namespace

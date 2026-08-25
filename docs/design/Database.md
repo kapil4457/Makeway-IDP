@@ -2,6 +2,16 @@
 
 **Database:** PostgreSQL.
 
+> **Audit columns:** most tables extend `SharedAudit`, which provides
+> `createdBy` / `createdAt` / `modifiedBy` / `modifiedAt`. Where a table has
+> them they are shown as `createdAt / createdBy` and `modifiedAt / modifiedBy`
+> without repeating the full definition. Only `TeamMember` does not inherit
+> audit columns.
+>
+> **Stored enum values:** `str`-based Python enums. SQLAlchemy persists the
+> enum **member name** (`FAST_API`) unless `values_callable` is configured —
+> the readable values below (`fast-api`) are the API-facing wire values.
+
 ---
 
 ## Team
@@ -10,7 +20,7 @@ Organizational team that owns apps.
 
 ```
 teamId (PK)
-teamName
+teamName (unique)
 createdAt / createdBy
 modifiedAt / modifiedBy
 ```
@@ -24,9 +34,9 @@ modifiedAt / modifiedBy
 Individual developer using Makeway.
 
 ```
-userId (PK)
+userId (PK, UUID)
 email (unique)
-password (hash)
+passwordHash
 createdAt / createdBy
 modifiedAt / modifiedBy
 ```
@@ -41,11 +51,10 @@ Join table: Team ↔ User.
 
 ```
 teamMemberId (PK)
+role [member, …]                 -- default "member"; no audit columns
+isDeleted (boolean, default false)
 teamId (FK → Team)
 userId (FK → User)
-role [owner, member]
-isDeleted (boolean, default false)
-joinedAt
 UNIQUE (teamId, userId)
 ```
 
@@ -60,104 +69,121 @@ Top-level unit Makeway manages. One App = one GitHub monorepo.
 
 ```
 appId (PK)
-appName
+appName (unique)
 teamId (FK → Team)
-appRepoUrl
-gitOpsRepoUrl
+appRepoUrl (nullable)
+gitOpsRepoUrl (nullable)
 createdAt / createdBy
 modifiedAt / modifiedBy
 ```
 
-**Why:** Anchor entity. All Environments, Services, and Requests trace back to it.
+**Why:** Anchor entity. All Services, Requests, and Jobs trace back to it.
 
 ---
 
 ## Cluster
 
-Static reference data for the 3 fixed EKS clusters.
+Reference data for the fixed EKS clusters.
 
 ```
 clusterId (PK)
-clusterName
+clusterName (unique)
 kubeApiEndpoint
-```
-
-**Why:** `Namespace` and `Environment` need a stable FK target identifying which physical EKS cluster to deploy to. Reference data thus no audit fields, seeded once, not app-managed.
-
----
-
-## Environment
-
-A deployment environment (dev/qa/uat/prod) belonging to an App.
-
-```
-envId (PK)
-appId (FK → App)
-envName [dev, qa, uat, prod]
-clusterId (FK → Cluster)
+environment                 -- "dev" | "uat" | "prod"
 createdAt / createdBy
 modifiedAt / modifiedBy
-UNIQUE (appId, envName)
 ```
 
-**Why:** Capabilities and deployments are tracked per environment, not per app. Same App can be READY in dev and FAILED in prod simultaneously. `clusterId` maps each environment to its physical cluster.
+**Why:** There is no separate `Environment` table. An environment is a
+per-request concept (`AppConfig.env_config`) that resolves to the Cluster
+registered for that environment via `Cluster.environment`. Services and
+Namespaces carry the `clusterId` that identifies the physical EKS cluster.
 
 ---
 
 ## Service
 
-One deployable unit inside an App's monorepo.
+One deployable unit inside an App's monorepo, scoped to a cluster.
 
 ```
-serviceId (PK)
+svcId (PK)
+svcName                      -- "<service_name>-<env>", e.g. "orders-api-dev"
+serviceType [spring-boot, fast-api, node-js]
+repoPath (nullable)
 appId (FK → App)
-serviceName
-serviceType [spring-boot, fastapi, nodejs]
-repoPath
+clusterId (FK → Cluster)
 createdAt / createdBy
 modifiedAt / modifiedBy
-UNIQUE (appId, serviceName)
+UNIQUE (appId, svcName, clusterId)
 ```
 
-**Why:** Monorepo apps contain multiple services; Capabilities, Namespaces, and DeploymentSetup all scope to a specific service.
+**Why:** Monorepo apps contain multiple services. `svcName` embeds the
+environment because the same logical service deploys to every environment and
+the environment is not a separate table. Capabilities bind to services via
+`CapabilityAccess`; Namespaces, AccessBindings, and DeploymentSetup all scope
+to a specific service.
 
 ---
 
 ## Namespace
 
-Kubernetes namespace for a Service in an Environment.
+Kubernetes namespace for a Service on a Cluster.
 
 ```
 namespaceId (PK)
-serviceId (FK → Service)
-envId (FK → Environment)
+k8sNamespaceName
+status [pending, in_progress, success, failed]
+serviceId (FK → Service.svcId)
 clusterId (FK → Cluster)
-k8sNamespaceName (unique per cluster)
-status [PENDING, IN_PROGRESS, SUCCESS, FAILED]
-createdAt / modifiedAt
-UNIQUE (serviceId, envId)
+createdAt / createdBy
+modifiedAt / modifiedBy
+UNIQUE (serviceId, clusterId)
 ```
 
-**Why:** Tracks the actual K8s namespace backing each service+environment pair, and which cluster it lives on.
+**Why:** Tracks the actual K8s namespace backing each service+cluster pair and
+its reconciliation status.
 
 ---
 
 ## Capability
 
-Requested infrastructure (database, cache, queue, etc.), scoped to an environment and optionally a service.
+Requested infrastructure (database, storage, messaging, observability, …),
+per environment.
 
 ```
 capabilityId (PK)
-envId (FK → Environment)
-serviceId (FK → Service, nullable)   -- null = app-wide/shared
-capabilityType [database, cache, queue, notification, storage, cdn]
-status [PENDING, IN_PROGRESS, SUCCESS, FAILED, PARTIALLY_FAILED]
+capabilityType               -- discriminator string, e.g. "rel_database", "storage",
+                               "messaging", "observability"
+status [pending, in_progress, success, failed, partially_failed]
 errorMessage (nullable)
 createdAt / createdBy
 modifiedAt / modifiedBy
 ```
 
-**Why:** Core unit of "what infra does this app need, and is it ready," per environment. `serviceId` nullable to support both service-bound and app-shared resources.
+**Why:** Core unit of "what infra does this app need, and is it ready." A
+Capability is not directly bound to services — which services may use it is
+recorded in `CapabilityAccess`. The `capabilityType` mirrors the `type`
+discriminator on the capability config DTOs (`CapabilityConfig` union), and
+the full configuration lives in the related `InfraRequirement.config`.
+
+---
+
+## CapabilityAccess
+
+Join table linking a Capability to the Services allowed to use it.
+
+```
+capabilityAccessId (PK)
+capabilityId (FK → Capability)
+serviceId (FK → Service.svcId)
+createdAt / createdBy
+modifiedAt / modifiedBy
+```
+
+**Why:** A capability is shared across one or more services in an environment;
+this row is the explicit grant. Written during app creation (one row per
+entry in a capability's `access_to` list, resolved through
+`ServiceRepository.get_by_name("<svc>-<env>")`).
 
 ---
 
@@ -171,10 +197,14 @@ capabilityId (FK → Capability)
 config (jsonb)               -- storageGb, ttl, tier, replicas, etc.
 secretRef (text, nullable)   -- Secrets Manager ARN/path only, never the value
 outputRef (jsonb, nullable)  -- endpoint, URL, ARN, bucket name, etc.
-createdAt / modifiedAt
+errorMessage (nullable)
+createdAt / createdBy
+modifiedAt / modifiedBy
 ```
 
-**Why:** Separates input config from provisioning output. `jsonb` avoids schema changes per capability type. `secretRef`/`outputRef` split enforces credentials never land in plain columns.
+**Why:** Separates input config from provisioning output. `jsonb` avoids schema
+changes per capability type. `secretRef`/`outputRef` split enforces
+credentials never land in plain columns.
 
 ---
 
@@ -184,16 +214,19 @@ IAM grant linking a Service to a Capability within a Namespace.
 
 ```
 accessBindingId (PK)
-capabilityId (FK → Capability)
-serviceId (FK → Service)
-namespaceId (FK → Namespace)
 roleArn
-accessType [READ, WRITE, READ_WRITE]
-createdAt / modifiedAt
+accessType [read, write, read_write]
+capabilityId (FK → Capability)
+serviceId (FK → Service.svcId)
+namespaceId (FK → Namespace)
+createdAt / createdBy
+modifiedAt / modifiedBy
 UNIQUE (capabilityId, serviceId, namespaceId)
 ```
 
-**Why:** Explicit, auditable access grant per (capability, service, namespace). A service has no access to a capability. It is shared or bound, unless a row exists here. This is what enforces "shared vs. "bound" resource access at the IAM layer.
+**Why:** Explicit, auditable access grant per (capability, service, namespace).
+A service has no access to a capability unless a row exists here — this is
+what enforces "shared vs. bound" resource access at the IAM layer.
 
 ---
 
@@ -204,33 +237,36 @@ Tracks applied network-level isolation for a Namespace.
 ```
 ruleId (PK)
 namespaceId (FK → Namespace)
-ruleType [K8S_NETWORK_POLICY, SECURITY_GROUP]
+ruleType [k8s_network_policy, security_group]
 targetRef (text)              -- policy name or security group ID
 status
-createdAt / modifiedAt
+createdAt / createdBy
+modifiedAt / modifiedBy
 ```
 
-**Why:** Visibility into whether NetworkPolicy/Security Group isolation was actually applied for a namespace as namespaces alone don't isolate network traffic; this tracks the enforcement layer that does.
+**Why:** Visibility into whether NetworkPolicy/Security Group isolation was
+actually applied for a namespace, since namespaces alone don't isolate network
+traffic.
 
 ---
 
 ## DeploymentSetup
 
-ArgoCD registration and sync status for a Service in an Environment.
+ArgoCD registration and sync status for a Service.
 
 ```
 deploymentSetupId (PK)
-serviceId (FK → Service)
-envId (FK → Environment)
-status [PENDING, IN_PROGRESS, SUCCESS, FAILED]
+serviceId (FK → Service.svcId)
+status
 argocdAppName (nullable)
 lastSyncedAt (nullable)
 errorMessage (nullable)
-createdAt / modifiedAt
-UNIQUE (serviceId, envId)
+createdAt / createdBy
+modifiedAt / modifiedBy
 ```
 
-**Why:** Deployment mechanism, not an infra resource thus kept separate from Capability. `envId` required since a service deploys independently to each environment with independent sync state.
+**Why:** Deployment mechanism, not an infra resource, thus kept separate from
+Capability. Links to `Job` via `Job.deploymentSetupId` for async reconciliation.
 
 ---
 
@@ -241,15 +277,16 @@ A single user-initiated action.
 ```
 requestId (PK)
 idempotencyKey (unique)
-requestType [CREATE_APP, ADD_CAPABILITY, DELETE_CAPABILITY, DELETE_APP, UPDATE_RESOURCE, UPDATE_APP]
+requestType [create_app, add_capability, delete_capability, delete_app, update_resource, update_app]
 appId (FK → App, nullable)
-requestStatus [PENDING, IN_PROGRESS, SUCCESS, FAILED, PARTIALLY_FAILED]
+requestStatus [pending, in_progress, success, failed, partially_failed]
 rawRequest (jsonb)
 createdAt / createdBy
 modifiedAt / modifiedBy
 ```
 
-**Why:** `idempotencyKey` prevents duplicate submission from creating duplicate infra.
+**Why:** `idempotencyKey` prevents duplicate submission from creating duplicate
+infra. `rawRequest` preserves the exact desired state submitted.
 
 ---
 
@@ -262,14 +299,35 @@ jobId (PK)
 requestId (FK → Request)
 capabilityId (FK → Capability, nullable)
 deploymentSetupId (FK → DeploymentSetup, nullable)
-step [CREATE_PROJECT, PROVISION_INFRA, ARGOCD_SETUP]
-status [PENDING, IN_PROGRESS, SUCCESS, FAILED]
-stepFunctionExecutionArn (text)
+step [create_project, provision_infra, argocd_setup]
+status [pending, in_progress, success, failed]
+stepFunctionExecutionArn (text, nullable)
 errorDetail (text, nullable)
-startedAt / completedAt
+createdAt / createdBy        -- serves as the job's submission time
+modifiedAt / modifiedBy      -- reflects latest attempt state change
 ```
 
-**Why:** Tracks retry history, per-attempt errors, and queue traceability — required for idempotent retries and debugging stuck/failed steps.
+**Why:** Tracks retry history, per-attempt errors, and queue traceability —
+required for idempotent retries and debugging stuck/failed steps.
+
+---
+
+## App Creation Write Pattern
+
+A single `POST /app/create` submission performs one atomic unit of work
+(committed once by the service; each repository only flushes):
+
+```
+App ── 1
+├── Service × (services × environments)          appId + clusterId
+├── Capability × (capabilities × environments)   capabilityType = config.type
+│   ├── InfraRequirement × 1                     config = config.model_dump()
+│   └── CapabilityAccess × (access_to services)  serviceId via svcName "<svc>-<env>"
+Request × 1                                       idempotencyKey, rawRequest
+Job × 1                                           requestId, step=create_project
+```
+
+If any step fails, the whole registration rolls back — no half-created app.
 
 ---
 
@@ -278,14 +336,13 @@ startedAt / completedAt
 ```
 Team ──< TeamMember >── User
 Team ──< App
-App ──< Environment >── Cluster
-App ──< Service
-Environment ──< Namespace >── Service, Cluster
-Environment ──< Capability >── Service (nullable)
+App ──< Service >── Cluster
+Service ──< Namespace >── Cluster
 Capability ──< InfraRequirement (1:1)
+Capability ──< CapabilityAccess >── Service
 Capability ──< AccessBinding >── Service, Namespace
 Namespace ──< NetworkIsolationRule
-Service ──< DeploymentSetup >── Environment
+Service ──< DeploymentSetup
 App ──< Request
 Request ──< Job >── Capability (nullable), DeploymentSetup (nullable)
 ```

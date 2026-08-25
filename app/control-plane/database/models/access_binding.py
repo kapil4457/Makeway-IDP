@@ -1,6 +1,6 @@
 from sqlmodel import Field, UniqueConstraint
 from .shared_audit import SharedAudit
-from dto.enums.access_binding_type import AccessBindingStatus
+from dto.enums.access_binding_status import AccessBindingStatus
 
 class AccessBinding(SharedAudit, table=True):
     accessBindingId: int = Field(primary_key=True)

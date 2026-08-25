@@ -1,8 +1,9 @@
 from enum import Enum
 
-class ServiceType(str,Enum):
-    """Type of a service in the Makeway platform."""
+
+class ServiceType(str, Enum):
+    """Golden-path application stacks supported by Makeway."""
 
     SPRING_BOOT = "spring-boot"
-    FASTAPI = "fastapi"
-    NODEJS = "nodejs"
+    FAST_API = "fast-api"
+    NODE_JS = "node-js"

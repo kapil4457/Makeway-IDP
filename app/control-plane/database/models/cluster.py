@@ -7,4 +7,5 @@ class Cluster(SharedAudit, table=True):
     clusterId: int | None = Field(default=None, primary_key=True)
     clusterName: str = Field(unique=True, nullable=False, max_length=63 )
     kubeApiEndpoint: str = Field(nullable=False)
+    environment: str = Field(nullable=False)
     

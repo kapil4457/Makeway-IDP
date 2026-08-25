@@ -1,4 +1,5 @@
-import uuid
+﻿import uuid
+from dotenv import load_dotenv
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
@@ -12,20 +13,20 @@ from auth.interceptor import AuthInterceptor
 from core.logger import get_logger, set_request_id, setup_logging
 from core.exception_handlers import register_exception_handlers
 
-
+load_dotenv()
 logger = get_logger(__name__)
 
 API_DESCRIPTION = """
 Makeway is an AI-Assisted Internal Developer Platform (IDP).
 
 Use this API to onboard applications onto the platform: declare the desired
-state (services, databases, caches, storage, observability, messaging) and
+state (services, databases, storage, observability, messaging) and
 Makeway reconciles it into real infrastructure through Terraform, GitOps,
 and Vault.
 
 ### Conventions
 
-* All provisioning operations are **idempotent** — retries never create
+* All provisioning operations are **idempotent** â€” retries never create
   duplicate resources.
 * Desired state is the source of truth; workers reconcile it into actual
   infrastructure.

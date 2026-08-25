@@ -3,7 +3,6 @@ from pydantic import ConfigDict, Field
 
 from .env_config import EnvConfig
 
-
 class AppConfig(pydantic.BaseModel):
     """Desired state for a new application onboarded onto the Makeway platform."""
 
@@ -12,6 +11,7 @@ class AppConfig(pydantic.BaseModel):
             "examples": [
                 {
                     "app_name": "order-service",
+                    "team_name": "orders",
                     "env_config": [
                         {
                             "env": "dev",
@@ -37,17 +37,9 @@ class AppConfig(pydantic.BaseModel):
                                 },
                                 {
                                     "config": {
-                                        "type": "cache",
-                                        "capacity": 10,
-                                        "ttl": 300,
-                                    },
-                                    "access_to": ["orders-api"],
-                                },
-                                {
-                                    "config": {
                                         "type": "storage",
                                         "s3": {
-                                            "region": "us-east-1",
+                                            "region": "ap-south-1",
                                             "cloudfront": True,
                                         },
                                     },
@@ -86,6 +78,11 @@ class AppConfig(pydantic.BaseModel):
         min_length=3,
         max_length=50,
         pattern=r"^[a-z0-9]([a-z0-9 -]*[a-z0-9])?$",
+    )
+    team_name: str =  Field(
+        ...,
+        description="Team for which this application is being created for",
+        examples=["orders"]
     )
     env_config: list[EnvConfig] = Field(
         default_factory=list,

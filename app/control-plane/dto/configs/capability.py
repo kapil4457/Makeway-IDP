@@ -3,20 +3,19 @@ from typing import Annotated
 import pydantic
 from pydantic import Field, Tag
 
-from .cache_config import CacheConfig
 from .database_config import DatabaseConfig
 from .messaging_config import MessagingConfig
 from .observability_config import ObservabilityConfig
 from .storage_config import StorageConfig
+from dto.enums.capability_types import CapabilityType
 
 # A config's `type` field (e.g. "storage") selects which capability schema the
 # `config` object is validated against. The union below is keyed on that field.
 CapabilityConfig = Annotated[
-    Annotated[StorageConfig, Tag("storage")]
-    | Annotated[ObservabilityConfig, Tag("observability")]
-    | Annotated[MessagingConfig, Tag("messaging")]
-    | Annotated[DatabaseConfig, Tag("rel_database")]
-    | Annotated[CacheConfig, Tag("cache")],
+    Annotated[StorageConfig, Tag(CapabilityType.STORAGE)]
+    | Annotated[ObservabilityConfig, Tag(CapabilityType.OBSERVABILITY)]
+    | Annotated[MessagingConfig, Tag(CapabilityType.MESSAGING)]
+    | Annotated[DatabaseConfig, Tag(CapabilityType.REL_DATABASE)],
     pydantic.Field(discriminator="type"),
 ]
 

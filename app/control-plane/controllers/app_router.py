@@ -1,8 +1,13 @@
-from fastapi import APIRouter
+﻿from fastapi import APIRouter, Header, Depends, status
 
 from core import get_logger
 from dto.configs.app_config import AppConfig
 from dto.response.create_app import AppCreateResponse
+from database.models.user import User
+from dependencies.auth import get_current_user
+from service.app_creation_service import AppCreationService
+from dependencies.app import get_app_creation_service
+
 
 logger = get_logger(__name__)
 
@@ -14,14 +19,25 @@ router = APIRouter(prefix="/app", tags=["App Management"])
     summary="Create a new app",
     description=(
         "Registers the desired state for a new application. Makeway reconciles the "
-        "requested capabilities (services, database, cache, storage, observability, "
+        "requested capabilities (services, database, storage, observability, "
         "messaging) into real infrastructure asynchronously. The operation is "
-        "idempotent — retrying with the same payload never duplicates resources."
+        "idempotent â€” retrying with the same payload never duplicates resources."
     ),
     response_model=AppCreateResponse,
     response_description="The app creation request was accepted.",
 )
-def create_app(app_config: AppConfig) -> AppCreateResponse:
+def create_app(app_config: AppConfig, 
+               idempotency_key: str = Header( ...,
+                    alias="Idempotency-Key",
+                    min_length=8,
+                    max_length=255
+                    ),
+                current_user: User = Depends(get_current_user),
+                service: AppCreationService = Depends(
+                    get_app_creation_service
+                    ),
+
+               ) -> AppCreateResponse:
     logger.info(
         "App creation requested",
         extra={
@@ -31,8 +47,8 @@ def create_app(app_config: AppConfig) -> AppCreateResponse:
             }
         },
     )
-
-    return AppCreateResponse(
-        message="App creation requested",
-        app_name=app_config.app_name,
+    return service.submit(
+        app_config=app_config,
+        user=current_user,
+        idempotency_key=idempotency_key,
     )

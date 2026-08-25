@@ -3,7 +3,7 @@ sqlmodel
 fastapi
 uvicorn
 psycopg2-binary
-PyJWT
+pyjwt
 pwdlib[argon2]
 pydantic[email]
 alembic

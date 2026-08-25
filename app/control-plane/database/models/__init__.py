@@ -20,10 +20,10 @@ from database.models.user import User
 from database.models.team_member import TeamMember
 from database.models.app import App
 from database.models.cluster import Cluster
-from database.models.environment import Environment
 from database.models.service import Service
 from database.models.namespace import Namespace
 from database.models.capability import Capability
+from database.models.capability_access import CapabilityAccess
 from database.models.infra_requirement import InfraRequirement
 from database.models.access_binding import AccessBinding
 from database.models.network_isolation_rule import NetworkIsolationRule
@@ -37,10 +37,10 @@ __all__ = [
     "TeamMember",
     "App",
     "Cluster",
-    "Environment",
     "Service",
     "Namespace",
     "Capability",
+    "CapabilityAccess",
     "InfraRequirement",
     "AccessBinding",
     "NetworkIsolationRule",

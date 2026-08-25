@@ -15,6 +15,14 @@ class ClusterRepository:
 
         return self.session.exec(clusters).first()
 
+    def get_by_env(self,env_name:str)->Cluster | None:
+        clusters = select(Cluster).where(
+            Cluster.environment == env_name
+        )
+        return self.session.exec(clusters).first()
+
+
+
     def create(self, cluster: Cluster) -> Cluster:
         self.session.add(cluster)
         self.session.commit()

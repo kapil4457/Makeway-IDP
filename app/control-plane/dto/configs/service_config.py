@@ -1,16 +1,9 @@
-from enum import Enum
 from typing import Optional
 
 import pydantic
 from pydantic import Field
 
-
-class ServiceType(str, Enum):
-    """Golden-path application stacks supported by Makeway."""
-
-    SPRING_BOOT = "spring-boot"
-    FAST_API = "fast-api"
-    NODE_JS = "node-js"
+from dto.enums.service_type import ServiceType
 
 
 class ServiceConfig(pydantic.BaseModel):

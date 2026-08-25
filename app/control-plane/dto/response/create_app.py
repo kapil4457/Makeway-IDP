@@ -9,8 +9,17 @@ class AppCreateResponse(BaseModel):
         description="Human-readable status message.",
         examples=["App creation requested"],
     )
-    app_name: str = Field(
+    request_id: int = Field(
         ...,
-        description="Name of the application that was requested.",
-        examples=["order-service"],
+        examples=[101],
+    )
+
+    job_id: int = Field(
+        ...,
+        examples=[501],
+    )
+
+    status: str = Field(
+        ...,
+        examples=["pending"],
     )

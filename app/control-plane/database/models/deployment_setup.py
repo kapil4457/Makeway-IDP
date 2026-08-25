@@ -11,8 +11,3 @@ class DeploymentSetup(SharedAudit, table=True):
     errorMessage: str = Field(default=None)
     
     serviceId: int = Field(nullable=False, foreign_key="service.svcId", index=True)
-    envId: int = Field(nullable=False, foreign_key="environment.envId", index=True)
-
-    __table_args__ = (
-            UniqueConstraint("serviceId", "envId", name="uq_deployment_setup_service_env"),
-        )
