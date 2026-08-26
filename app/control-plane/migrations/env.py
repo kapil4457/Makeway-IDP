@@ -7,20 +7,12 @@ from alembic import context
 
 
 from sqlmodel import SQLModel
-from database.models.user import User
-from database.models.access_binding import AccessBinding
-from database.models.app import App
-from database.models.capability import Capability
-from database.models.cluster import Cluster
-from database.models.deployment_setup import DeploymentSetup
-from database.models.infra_requirement import InfraRequirement
-from database.models.job import Job
-from database.models.namespace import Namespace
-from database.models.network_isolation_rule import NetworkIsolationRule
-from database.models.request import Request
-from database.models.service import Service
-from database.models.team import Team
-from database.models.team_member import TeamMember
+# Import the central model registry so every table registers with
+# SQLModel.metadata. Keeping an explicit per-model list here duplicates the
+# registry and silently drops any table added there but not here (e.g. the
+# capability_access table) from alembic autogenerate. New tables only need to
+# be registered in database/models/__init__.py.
+import database.models  # noqa: F401
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
