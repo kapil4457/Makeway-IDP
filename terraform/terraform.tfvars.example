@@ -1,0 +1,6 @@
+# Copy to terraform.tfvars (gitignored) and fill in your IDs.
+# Find them via the GitHub API:
+#   curl -s https://api.github.com/repos/<owner>/<repo>   # .owner.id  -> github_owner_id
+#                                                         # .id        -> github_repo_id
+github_owner_id = "<owner-id>"
+github_repo_id  = "<repo-id>"

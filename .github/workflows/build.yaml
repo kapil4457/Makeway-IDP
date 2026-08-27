@@ -33,5 +33,5 @@ jobs:
           file: ./app/control-plane/Dockerfile
           push: true
           tags: |
-            ${{ vars.DOCKERHUB_IMAGE }}:latest
-            ${{ vars.DOCKERHUB_IMAGE }}:${{ github.sha }}
+            ${{ vars.DOCKERHUB_CONTROL_PLANE_IMAGE }}:latest
+            ${{ vars.DOCKERHUB_CONTROL_PLANE_IMAGE }}:${{ github.sha }}

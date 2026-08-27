@@ -28,6 +28,16 @@ variable "github_repo" {
   default     = "Makeway-IDP"
 }
 
+variable "github_owner_id" {
+  description = "Numeric ID of the GitHub owner. Part of the immutable OIDC subject claim."
+  type        = string
+}
+
+variable "github_repo_id" {
+  description = "Numeric ID of the GitHub repository. Part of the immutable OIDC subject claim."
+  type        = string
+}
+
 variable "github_branch" {
   description = "Branch allowed to assume the GitHub Actions role."
   type        = string

@@ -19,6 +19,16 @@ variable "github_branch" {
   default     = "main"
 }
 
+variable "github_owner_id" {
+  description = "Numeric ID of the GitHub owner. Part of the immutable OIDC subject claim."
+  type        = string
+}
+
+variable "github_repo_id" {
+  description = "Numeric ID of the GitHub repository. Part of the immutable OIDC subject claim."
+  type        = string
+}
+
 variable "aws_region" {
   description = "AWS region the role/oidc provider is scoped to."
   type        = string
