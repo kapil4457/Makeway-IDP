@@ -1,34 +1,8 @@
-# ---- Version control ----
-.git
-.github
-
-# ---- Secrets & local configuration ----
+.venv
+__pycache__
+*.pyc
 .env
-.env.*
-
-# ---- Python ----
-.venv/
-venv/
-__pycache__/
-*.py[cod]
-.pytest_cache/
-.mypy_cache/
-.ruff_cache/
-.coverage
-htmlcov/
-dist/
-build/
-*.egg-info/
-
-# ---- Logs ----
-logs/
-*.log
-
-# ---- IDE & editor ----
-.idea/
-.vscode/
-
-# ---- OS ----
-.DS_Store
-Thumbs.db
-Desktop.ini
+.git
+.gitignore
+Dockerfile
+.dockerignore

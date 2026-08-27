@@ -1,9 +1,10 @@
-boto3
-sqlmodel
 fastapi
 uvicorn
+sqlmodel
+pydantic[email]
+alembic
 psycopg2-binary
 pyjwt
 pwdlib[argon2]
-pydantic[email]
-alembic
+boto3
+python-dotenv

@@ -36,6 +36,7 @@ class ClusterService:
         cluster = Cluster(
             clusterName=request.clusterName,
             kubeApiEndpoint=str(request.kubeApiEndpoint),
+            environment=request.environment.value,
             createdBy=current_user.email,
             modifiedBy=current_user.email
         )

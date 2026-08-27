@@ -104,7 +104,7 @@ class AppCreationService:
             services = env_config.services
             capabilities = env_config.capabilities
 
-            cluster = self.clusterRepository.get_by_env(env)
+            cluster = self.clusterRepository.get_by_env(env.value)
             if cluster is None:
                 raise InvalidRequestException(
                     message=f"No cluster is registered for environment '{env.value}'."

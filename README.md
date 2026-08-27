@@ -2,6 +2,18 @@
 
 Self-service internal developer platform. A developer requests an app with a set of capabilities (database, cache, queue, storage, CDN). Makeway creates the GitHub repo, provisions the infrastructure, sets up access control, and deploys the app through GitOps.
 
+## CI/CD Setup
+
+Infrastructure is provisioned via Terraform and deployed via GitHub Actions using OIDC (no static AWS keys).
+
+1. **Bootstrap once** — see [terraform/BOOTSTRAP.md](terraform/BOOTSTRAP.md) (create state bucket, `terraform init` + `apply`).
+2. **Set GitHub Actions secret** (repo **Settings → Secrets and variables → Actions**):
+   - `AWS_ROLE_ARN` = `arn:aws:iam::<ID>:role/github-actions-terraform` (from Terraform output `github_actions_role_arn`)
+   - optional `AWS_REGION` variable defaults to `ap-south-1`
+3. `deploy-infra` workflow assumes the role via OIDC; `makeway-infra-deploy` environment is the manual approval gate before apply.
+
+Optional (Docker image build/push): secrets `DOCKERHUB_USERNAME`, `DOCKERHUB_TOKEN`, var `DOCKERHUB_IMAGE`.
+
 ## Flow
 
 1. Developer submits a request via CLI or API.
