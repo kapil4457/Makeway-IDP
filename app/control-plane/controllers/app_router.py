@@ -52,3 +52,4 @@ def create_app(app_config: AppConfig,
         user=current_user,
         idempotency_key=idempotency_key,
     )
+
