@@ -30,8 +30,9 @@ module "oidc_github_actions" {
   github_org      = var.github_org
   github_repo     = var.github_repo
   github_branch   = var.github_branch
-  github_owner_id = var.github_owner_id
-  github_repo_id  = var.github_repo_id
+  github_owner_id         = var.github_owner_id
+  github_repo_id          = var.github_repo_id
+  github_deploy_environment = var.github_deploy_environment
   attached_policy_arns = var.github_actions_policy_arns
 }
 

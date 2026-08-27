@@ -29,6 +29,12 @@ variable "github_repo_id" {
   type        = string
 }
 
+variable "github_deploy_environment" {
+  description = "GitHub Actions environment whose jobs assume the role. Its OIDC subject uses environment:<name> instead of ref:."
+  type        = string
+  default     = "makeway-infra-deploy"
+}
+
 variable "aws_region" {
   description = "AWS region the role/oidc provider is scoped to."
   type        = string

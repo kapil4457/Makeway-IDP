@@ -38,6 +38,12 @@ variable "github_repo_id" {
   type        = string
 }
 
+variable "github_deploy_environment" {
+  description = "GitHub Actions environment whose jobs assume the role."
+  type        = string
+  default     = "makeway-infra-deploy"
+}
+
 variable "github_branch" {
   description = "Branch allowed to assume the GitHub Actions role."
   type        = string
