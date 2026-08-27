@@ -40,7 +40,7 @@ class BadRequestException(AppException):
 class InvalidRequestException(BadRequestException):
     def __init__(
         self,
-        errors: list[dict[str, Any]],
+        errors: list[dict[str, Any]] | None = None,
         message: str = "The request contains invalid data.",
     ):
         super().__init__(

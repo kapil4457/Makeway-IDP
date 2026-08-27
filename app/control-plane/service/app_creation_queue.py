@@ -11,12 +11,19 @@ class AppCreationQueue:
             "APP_CREATION_QUEUE_URL"
         ]
 
+        region = (
+            os.environ.get("SQS_REGION")
+            or os.environ.get("AWS_REGION")
+            or os.environ.get("AWS_DEFAULT_REGION")
+            or "ap-south-1"
+        )
+
+        endpoint_url = os.environ.get("SQS_ENDPOINT_URL") or None
+
         self.client = boto3.client(
             "sqs",
-            region_name=os.environ.get(
-                "AWS_REGION",
-                "ap-south-1",
-            ),
+            region_name=region,
+            endpoint_url=endpoint_url,
         )
 
     def publish(
