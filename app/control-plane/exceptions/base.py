@@ -36,6 +36,7 @@ class BadRequestException(AppException):
         )
 
 
+
 class InvalidRequestException(BadRequestException):
     def __init__(
         self,
