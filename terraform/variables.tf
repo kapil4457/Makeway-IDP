@@ -25,7 +25,7 @@ variable "github_org" {
 variable "github_repo" {
   description = "GitHub repository name (without the owner)."
   type        = string
-  default     = "Forge-IDP"
+  default     = "Makeway-IDP"
 }
 
 variable "github_branch" {
