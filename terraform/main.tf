@@ -1,50 +1,40 @@
-variable "region" {
-  description = "AWS region for shared platform infrastructure."
-  type        = string
-  default     = "ap-south-1"
+terraform {
+  required_providers {
+    aws = {
+      source  = "hashicorp/aws"
+      version = "~> 5.0"
+    }
+    tls = {
+      source  = "hashicorp/tls"
+      version = "~> 4.0"
+    }
+  }
+
+  backend "s3" {
+    bucket       = "makeway-terraform-state"
+    key          = "platform/terraform.tfstate"
+    region       = "ap-south-1"
+    use_lockfile = true
+    encrypt      = true
+  }
 }
 
-variable "vpc_cidr" {
-  description = "CIDR block for the Makeway VPC."
-  type        = string
-  default     = "10.0.0.0/16"
+provider "aws" {
+  region = var.region
 }
 
-variable "availability_zones" {
-  description = "Availability zones used by the VPC."
-  type        = list(string)
+module "oidc_github_actions" {
+  source = "./modules/oidc"
 
-  default = [
-    "ap-south-1a",
-    "ap-south-1b",
-    "ap-south-1c"
-  ]
+  role_name       = var.github_actions_role_name
+  github_org      = var.github_org
+  github_repo     = var.github_repo
+  github_branch   = var.github_branch
+  attached_policy_arns = var.github_actions_policy_arns
 }
 
-variable "private_subnet_cidrs" {
-  description = "Private subnet CIDRs."
-  type        = list(string)
+module "sqs" {
+  source = "./modules/sqs"
 
-  default = [
-    "10.0.1.0/24",
-    "10.0.2.0/24",
-    "10.0.3.0/24"
-  ]
-}
-
-variable "public_subnet_cidrs" {
-  description = "Public subnet CIDRs."
-  type        = list(string)
-
-  default = [
-    "10.0.101.0/24",
-    "10.0.102.0/24",
-    "10.0.103.0/24"
-  ]
-}
-
-variable "cluster_name" {
-  description = "Name associated with the shared platform."
-  type        = string
-  default     = "makeway"
+  name = var.sqs_queue_name
 }
