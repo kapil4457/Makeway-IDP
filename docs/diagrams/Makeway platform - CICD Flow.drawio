@@ -1,0 +1,136 @@
+<mxfile host="Electron" pages="2">
+  <diagram name="CICD Flow" id="Yphw-5QaKchwjUMossM4">
+    <mxGraphModel dx="1928" dy="645" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="850" pageHeight="1100" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="X9OZZnfRbo83r-ja1G0e-9" edge="1" parent="1" source="X9OZZnfRbo83r-ja1G0e-5" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" target="X9OZZnfRbo83r-ja1G0e-8">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="X9OZZnfRbo83r-ja1G0e-10" connectable="0" parent="X9OZZnfRbo83r-ja1G0e-9" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];labelBackgroundColor=#ffe6cc;labelBorderColor=#d79b00;" value="User triggers&amp;nbsp;&lt;div&gt;deployment&lt;/div&gt;" vertex="1">
+          <mxGeometry relative="1" x="0.0866" y="-1" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="X9OZZnfRbo83r-ja1G0e-5" parent="1" style="dashed=0;outlineConnect=0;html=1;align=center;labelPosition=center;verticalLabelPosition=bottom;verticalAlign=top;shape=mxgraph.weblogos.github" value="Repo" vertex="1">
+          <mxGeometry height="75" width="75" x="-200" y="217.5" as="geometry" />
+        </mxCell>
+        <mxCell id="X9OZZnfRbo83r-ja1G0e-11" edge="1" parent="1" source="X9OZZnfRbo83r-ja1G0e-8" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="dQMlDzZ2jLGUuLpBMVI7-2">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="300" y="255" />
+              <mxPoint x="300" y="255" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="Y3CGBfJsp1vob4tKUxc4-2" connectable="0" parent="X9OZZnfRbo83r-ja1G0e-11" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];" value="Assume Role" vertex="1">
+          <mxGeometry relative="1" x="0.0568" y="-2" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="LlyrfJvUDcxuz4xpvQvn-1" edge="1" parent="1" source="X9OZZnfRbo83r-ja1G0e-8" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;entryX=0.5;entryY=0;entryDx=0;entryDy=0;entryPerimeter=0;" target="dQMlDzZ2jLGUuLpBMVI7-1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="95.67" y="255" as="sourcePoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="LlyrfJvUDcxuz4xpvQvn-3" connectable="0" parent="LlyrfJvUDcxuz4xpvQvn-1" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];labelBackgroundColor=#ffe6cc;labelBorderColor=#d79b00;" value="With Assumed Role" vertex="1">
+          <mxGeometry relative="1" x="0.0463" y="-4" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="X9OZZnfRbo83r-ja1G0e-8" parent="1" style="sketch=0;outlineConnect=0;fontColor=#232F3E;gradientColor=none;fillColor=#7AA116;strokeColor=none;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;fontSize=12;fontStyle=0;aspect=fixed;pointerEvents=1;shape=mxgraph.aws4.iot_analytics_pipeline;" value="Deploy Pipeline" vertex="1">
+          <mxGeometry height="60" width="111.43" x="40" y="225" as="geometry" />
+        </mxCell>
+        <mxCell id="dQMlDzZ2jLGUuLpBMVI7-1" parent="1" style="sketch=0;points=[[0,0,0],[0.25,0,0],[0.5,0,0],[0.75,0,0],[1,0,0],[0,1,0],[0.25,1,0],[0.5,1,0],[0.75,1,0],[1,1,0],[0,0.25,0],[0,0.5,0],[0,0.75,0],[1,0.25,0],[1,0.5,0],[1,0.75,0]];gradientDirection=north;outlineConnect=0;fontColor=#232F3E;gradientColor=none;fillColor=#1E262E;strokeColor=#ffffff;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;fontSize=12;fontStyle=0;aspect=fixed;shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.marketplace;" value="" vertex="1">
+          <mxGeometry height="78" width="78" x="56.71" y="500" as="geometry" />
+        </mxCell>
+        <mxCell id="dQMlDzZ2jLGUuLpBMVI7-2" parent="1" style="swimlane;whiteSpace=wrap;html=1;" value="Vertical Container" vertex="1">
+          <mxGeometry height="372.5" width="200" x="490" y="68.75" as="geometry" />
+        </mxCell>
+        <mxCell id="X9OZZnfRbo83r-ja1G0e-2" parent="dQMlDzZ2jLGUuLpBMVI7-2" style="image;aspect=fixed;perimeter=ellipsePerimeter;html=1;align=center;shadow=0;dashed=0;fontColor=#4277BB;labelBackgroundColor=default;fontSize=12;spacingTop=3;image=img/lib/ibm/security/identity_provider.svg;" value="OIDC Identity Provider" vertex="1">
+          <mxGeometry height="90" width="90" x="55" y="31.25" as="geometry" />
+        </mxCell>
+        <mxCell id="X9OZZnfRbo83r-ja1G0e-3" parent="dQMlDzZ2jLGUuLpBMVI7-2" style="sketch=0;outlineConnect=0;fontColor=#232F3E;gradientColor=none;fillColor=#DD344C;strokeColor=none;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;fontSize=12;fontStyle=0;aspect=fixed;pointerEvents=1;shape=mxgraph.aws4.role;" value="GitHub Action Terraform Role" vertex="1">
+          <mxGeometry height="44" width="78" x="61" y="261.25" as="geometry" />
+        </mxCell>
+        <mxCell id="Y3CGBfJsp1vob4tKUxc4-1" parent="dQMlDzZ2jLGUuLpBMVI7-2" style="shape=cross;whiteSpace=wrap;html=1;" value="" vertex="1">
+          <mxGeometry height="50" width="50" x="75" y="171.25" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+  <diagram id="RVgVv4_9PXRUN10_ocBS" name="OIDC Flow">
+    <mxGraphModel dx="1135" dy="679" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="850" pageHeight="1100" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="YPFKfGtkpwuhDvrf1U17-1" parent="1" style="swimlane;whiteSpace=wrap;html=1;" value="OIDC Flow" vertex="1">
+          <mxGeometry height="580" width="718" x="360" y="260" as="geometry" />
+        </mxCell>
+        <mxCell id="ijUcPW5jBhWtpuxf3ahU-2" edge="1" parent="YPFKfGtkpwuhDvrf1U17-1" source="YPFKfGtkpwuhDvrf1U17-2" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="540" y="87.5" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="ijUcPW5jBhWtpuxf3ahU-3" connectable="0" parent="ijUcPW5jBhWtpuxf3ahU-2" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];labelBackgroundColor=none;" value="&lt;div&gt;&lt;br style=&quot;font-size: 12px; font-weight: 700; white-space: normal;&quot;&gt;&lt;/div&gt;" vertex="1">
+          <mxGeometry relative="1" x="0.0829" y="-1" as="geometry">
+            <mxPoint x="-17" y="102" as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="YPFKfGtkpwuhDvrf1U17-2" parent="YPFKfGtkpwuhDvrf1U17-1" style="dashed=0;outlineConnect=0;html=1;align=center;labelPosition=center;verticalLabelPosition=bottom;verticalAlign=top;shape=mxgraph.weblogos.github" value="GitHub CICD" vertex="1">
+          <mxGeometry height="75" width="75" x="110" y="50" as="geometry" />
+        </mxCell>
+        <mxCell id="ijUcPW5jBhWtpuxf3ahU-5" parent="YPFKfGtkpwuhDvrf1U17-1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;" value="&lt;span style=&quot;font-family: -apple-system, BlinkMacSystemFont, &amp;quot;Segoe UI&amp;quot;, Roboto, sans-serif; text-align: start; caret-color: rgb(225, 228, 232); white-space: pre-wrap;&quot;&gt;&lt;font style=&quot;font-size: 7px;&quot;&gt;&lt;span style=&quot;color: light-dark(rgb(0, 0, 0), rgb(237, 237, 237));&quot;&gt;AWS will accept tokens that claim to come from GitHub Actions, and I have GitHub&#39;s public signing cert (the thumbprint) to verify them.&lt;/span&gt;&lt;/font&gt;&lt;/span&gt;&lt;div&gt;&lt;span style=&quot;font-family: -apple-system, BlinkMacSystemFont, &amp;quot;Segoe UI&amp;quot;, Roboto, sans-serif; text-align: start; caret-color: rgb(225, 228, 232); white-space: pre-wrap; color: rgb(187, 185, 185);&quot;&gt;&lt;span style=&quot;color: rgb(0, 0, 0);&quot;&gt;&lt;font style=&quot;font-size: 7px;&quot;&gt;the identity that may assume me is one authenticated against that GitHub OIDC provider.&lt;/font&gt;&lt;/span&gt;&lt;/span&gt;&lt;/div&gt;" vertex="1">
+          <mxGeometry height="80" width="210" x="240" y="60" as="geometry" />
+        </mxCell>
+        <mxCell id="ijUcPW5jBhWtpuxf3ahU-6" parent="YPFKfGtkpwuhDvrf1U17-1" style="sketch=0;outlineConnect=0;fontColor=#232F3E;gradientColor=none;fillColor=#DD344C;strokeColor=none;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;fontSize=12;fontStyle=0;aspect=fixed;pointerEvents=1;shape=mxgraph.aws4.role;" value="IAM Role" vertex="1">
+          <mxGeometry height="44" width="78" x="570" y="240" as="geometry" />
+        </mxCell>
+        <mxCell id="ijUcPW5jBhWtpuxf3ahU-7" parent="YPFKfGtkpwuhDvrf1U17-1" style="sketch=0;points=[[0,0,0],[0.25,0,0],[0.5,0,0],[0.75,0,0],[1,0,0],[0,1,0],[0.25,1,0],[0.5,1,0],[0.75,1,0],[1,1,0],[0,0.25,0],[0,0.5,0],[0,0.75,0],[1,0.25,0],[1,0.5,0],[1,0.75,0]];gradientDirection=north;outlineConnect=0;fontColor=#232F3E;gradientColor=none;fillColor=#1E262E;strokeColor=#ffffff;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;fontSize=12;fontStyle=0;aspect=fixed;shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.marketplace;" value="" vertex="1">
+          <mxGeometry height="78" width="78" x="580" y="420" as="geometry" />
+        </mxCell>
+        <mxCell id="ijUcPW5jBhWtpuxf3ahU-8" parent="YPFKfGtkpwuhDvrf1U17-1" style="swimlane;whiteSpace=wrap;html=1;startSize=23;" value="Assume Role" vertex="1">
+          <mxGeometry height="290" width="158" x="540" y="30" as="geometry" />
+        </mxCell>
+        <mxCell id="ijUcPW5jBhWtpuxf3ahU-1" parent="ijUcPW5jBhWtpuxf3ahU-8" style="image;aspect=fixed;perimeter=ellipsePerimeter;html=1;align=center;shadow=0;dashed=0;fontColor=#4277BB;labelBackgroundColor=default;fontSize=12;spacingTop=3;image=img/lib/ibm/security/identity_provider.svg;" value="OIDC Identity Provider" vertex="1">
+          <mxGeometry height="80" width="80" x="30" y="50" as="geometry" />
+        </mxCell>
+        <mxCell id="ijUcPW5jBhWtpuxf3ahU-9" parent="ijUcPW5jBhWtpuxf3ahU-8" style="shape=cross;whiteSpace=wrap;html=1;size=0.21538461538463405;" value="" vertex="1">
+          <mxGeometry height="30" width="30" x="55" y="160" as="geometry" />
+        </mxCell>
+        <mxCell id="ijUcPW5jBhWtpuxf3ahU-12" edge="1" parent="YPFKfGtkpwuhDvrf1U17-1" source="YPFKfGtkpwuhDvrf1U17-2" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;entryX=0;entryY=0.5;entryDx=0;entryDy=0;entryPerimeter=0;" target="ijUcPW5jBhWtpuxf3ahU-7">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="200.03" y="87.48" />
+              <mxPoint x="200.03" y="170" />
+              <mxPoint x="382.48" y="170" />
+              <mxPoint x="382.48" y="459.03" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="ijUcPW5jBhWtpuxf3ahU-13" connectable="0" parent="ijUcPW5jBhWtpuxf3ahU-12" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];labelBackgroundColor=#ffe6cc;labelBorderColor=#d79b00;" value="After Assuming the Role" vertex="1">
+          <mxGeometry relative="1" x="-0.0175" y="1" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="YPFKfGtkpwuhDvrf1U17-3" parent="1" style="verticalLabelPosition=bottom;html=1;verticalAlign=top;align=center;strokeColor=none;fillColor=#00BEF2;shape=mxgraph.azure.github_code;pointerEvents=1;" value="GitHub OIDC Provider" vertex="1">
+          <mxGeometry height="75" width="75" x="470" y="730" as="geometry" />
+        </mxCell>
+        <mxCell id="YPFKfGtkpwuhDvrf1U17-4" edge="1" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;entryX=0.5;entryY=0;entryDx=0;entryDy=0;entryPerimeter=0;startArrow=classic;startFill=1;" target="YPFKfGtkpwuhDvrf1U17-3">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="507.52" y="420" />
+              <mxPoint x="507.52" y="420" />
+            </Array>
+            <mxPoint x="507.5" y="410" as="sourcePoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="YPFKfGtkpwuhDvrf1U17-5" connectable="0" parent="YPFKfGtkpwuhDvrf1U17-4" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];labelBackgroundColor=#ffe6cc;labelBorderColor=#d79b00;" value="Asks GitHub&#39;s OIDC provider for&amp;nbsp;&lt;div&gt;a signed JSON Web Token (JWT)&lt;/div&gt;&lt;div&gt;&lt;br&gt;&lt;/div&gt;&lt;div&gt;This contains details about the workflow,&amp;nbsp;&lt;/div&gt;&lt;div&gt;such as the organization, repository name,&lt;/div&gt;&lt;div&gt;&amp;nbsp;branch, and environment&lt;/div&gt;&lt;div&gt;&lt;br&gt;&lt;/div&gt;&lt;div&gt;This data is signed using a private key&lt;/div&gt;" vertex="1">
+          <mxGeometry relative="1" x="-0.2276" y="1" as="geometry">
+            <mxPoint x="-1" y="32" as="offset" />
+          </mxGeometry>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
