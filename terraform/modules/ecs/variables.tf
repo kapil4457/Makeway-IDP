@@ -35,6 +35,12 @@ variable "container_port" {
   default     = 8000
 }
 
+variable "container_memory" {
+  description = "Hard memory limit for the container (MiB). EC2 launch type requires memory or memoryReservation."
+  type        = number
+  default     = 512
+}
+
 variable "desired_count" {
   description = "Number of tasks to run."
   type        = number

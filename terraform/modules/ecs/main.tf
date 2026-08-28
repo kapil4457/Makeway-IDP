@@ -120,11 +120,12 @@ resource "aws_launch_template" "this" {
 }
 
 resource "aws_autoscaling_group" "this" {
-  name_prefix         = "${var.name}-"
-  min_size            = var.min_size
-  max_size            = var.max_size
-  desired_capacity    = var.desired_capacity
-  vpc_zone_identifier = var.subnet_ids
+  name_prefix           = "${var.name}-"
+  min_size              = var.min_size
+  max_size              = var.max_size
+  desired_capacity      = var.desired_capacity
+  vpc_zone_identifier   = var.subnet_ids
+  protect_from_scale_in = true
 
   launch_template {
     id      = aws_launch_template.this.id
@@ -191,6 +192,7 @@ resource "aws_ecs_task_definition" "this" {
       name      = "app"
       image     = var.container_image
       essential = true
+      memory    = var.container_memory
 
       portMappings = [
         {
