@@ -26,17 +26,18 @@ jobs:
       run:
         working-directory: terraform
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
       - name: Confirm destruction
+        working-directory: ${{ github.workspace }}
         run: |
           if [[ "${{ inputs.confirm }}" != "yes" ]]; then
             echo "::error::Destroy aborted. Type 'yes' in the confirm input to proceed."
             exit 1
           fi
-
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          ref: main
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
