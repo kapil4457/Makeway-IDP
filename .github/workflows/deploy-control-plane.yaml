@@ -6,7 +6,7 @@ on:
       image_tag:
         description: >-
           Docker Hub tag of the control-plane image to deploy
-          (e.g. "latest", or the "${{ github.sha }}" tag pushed by the build workflow).
+          (e.g. "latest", or a git-sha tag pushed by the build-workflow).
         required: false
         default: latest
 
