@@ -3,6 +3,11 @@ variable "name" {
   type        = string
 }
 
+variable "engine" {
+  description = "Type of RDS Instance. MYSQL, Aurora, Postgres"
+  type        = string
+}
+
 variable "engine_version" {
   description = "PostgreSQL engine version."
   type        = string
