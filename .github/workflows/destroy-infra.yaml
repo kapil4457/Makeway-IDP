@@ -1,0 +1,72 @@
+name: destroy-infra
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: >-
+          Type "yes" to destroy ALL platform resources (VPC, ECS, RDS, ALB,
+          SQS, NAT, IAM, OIDC). This is permanent and NOT reversible.
+        required: true
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: terraform-deploy
+  cancel-in-progress: false
+
+jobs:
+  destroy:
+    runs-on: ubuntu-latest
+    environment:
+      name: makeway-infra-deploy
+    defaults:
+      run:
+        working-directory: terraform
+    steps:
+      - name: Confirm destruction
+        run: |
+          if [[ "${{ inputs.confirm }}" != "yes" ]]; then
+            echo "::error::Destroy aborted. Type 'yes' in the confirm input to proceed."
+            exit 1
+          fi
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          role-session-name: makeway-infra-destroy
+          aws-region: ${{ vars.AWS_REGION || 'ap-south-1' }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: "1.16.0"
+
+      - name: Terraform Init
+        run: terraform init -input=false
+
+      - name: Show resources in state
+        run: terraform state list
+
+      - name: Terraform Plan Destroy
+        run: terraform plan -destroy -input=false -out=tfdestroy -no-color
+        env:
+          TF_VAR_github_owner_id: ${{ vars.OIDC_GITHUB_OWNER_ID }}
+          TF_VAR_github_repo_id: ${{ vars.OIDC_GITHUB_REPO_ID }}
+
+      - name: Show Destroy Plan
+        run: terraform show -no-color tfdestroy
+
+      - name: Terraform Destroy
+        run: terraform apply -input=false -auto-approve tfdestroy
+        env:
+          TF_VAR_github_owner_id: ${{ vars.OIDC_GITHUB_OWNER_ID }}
+          TF_VAR_github_repo_id: ${{ vars.OIDC_GITHUB_REPO_ID }}
