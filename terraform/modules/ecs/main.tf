@@ -74,10 +74,10 @@ resource "aws_iam_role" "task" {
 }
 
 resource "aws_iam_role_policy_attachment" "task" {
-  for_each = toset(var.task_role_policy_arns)
+  count = length(var.task_role_policy_arns)
 
   role       = aws_iam_role.task.name
-  policy_arn = each.value
+  policy_arn = var.task_role_policy_arns[count.index]
 }
 
 # --- Instances: security group, launch template, Auto Scaling group ---
