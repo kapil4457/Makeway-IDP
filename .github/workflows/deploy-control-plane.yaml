@@ -1,0 +1,71 @@
+name: deploy-control-plane
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: >-
+          Docker Hub tag of the control-plane image to deploy
+          (e.g. "latest", or the "${{ github.sha }}" tag pushed by the build workflow).
+        required: false
+        default: latest
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: terraform-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: makeway-infra-deploy
+    defaults:
+      run:
+        working-directory: terraform
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          role-session-name: makeway-control-plane-deploy
+          aws-region: ${{ vars.AWS_REGION || 'ap-south-1' }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: "1.16.0"
+
+      - name: Resolve image reference
+        id: image
+        run: |
+          echo "image=${{ vars.DOCKERHUB_CONTROL_PLANE_IMAGE || 'kapil4457/makeway-control-plane' }}:${{ inputs.image_tag }}" >> "$GITHUB_OUTPUT"
+
+      - name: Terraform Init
+        run: terraform init -input=false
+
+      - name: Terraform Plan
+        id: plan
+        run: terraform plan -input=false -out=tfplan -no-color
+        env:
+          TF_VAR_github_owner_id: ${{ vars.OIDC_GITHUB_OWNER_ID }}
+          TF_VAR_github_repo_id: ${{ vars.OIDC_GITHUB_REPO_ID }}
+          TF_VAR_ecs_image: ${{ steps.image.outputs.image }}
+
+      - name: Show Plan
+        run: terraform show -no-color tfplan
+
+      - name: Terraform Apply
+        run: terraform apply -input=false -auto-approve tfplan
+        env:
+          TF_VAR_github_owner_id: ${{ vars.OIDC_GITHUB_OWNER_ID }}
+          TF_VAR_github_repo_id: ${{ vars.OIDC_GITHUB_REPO_ID }}
+          TF_VAR_ecs_image: ${{ steps.image.outputs.image }}

@@ -97,9 +97,9 @@ variable "ecs_service_name" {
 }
 
 variable "ecs_image" {
-  description = "Control-plane container image (ECR or Docker Hub)."
+  description = "Control-plane container image (Docker Hub or ECR)."
   type        = string
-  default     = "makeway/control-plane:latest"
+  default     = "kapil4457/makeway-control-plane:latest"
 }
 
 variable "app_secret_key" {
