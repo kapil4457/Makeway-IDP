@@ -43,6 +43,16 @@ jobs:
       - name: Show Plan
         run: terraform show -no-color tfplan
 
+      # The consumer module zips its handler with data.archive_file at PLAN time.
+      # The apply job runs on a fresh checkout where dist/ is gitignored, so the
+      # zip must be carried across as an artifact for apply to open it.
+      - name: Upload consumer function package
+        uses: actions/upload-artifact@v4
+        with:
+          name: consumer-zip
+          path: terraform/modules/sqs_consumer/dist/makeway-app-creation-consumer.zip
+          if-no-files-found: error
+
       - name: Upload plan artifact
         uses: actions/upload-artifact@v4
         with:
@@ -85,6 +95,14 @@ jobs:
       - name: Check plan artifact exists
         working-directory: plan
         run: test -f tfplan
+
+      # Restore the consumer function zip next to the plan. Without it the
+      # Lambda apply fails with "reading ZIP file: no such file or directory".
+      - name: Download consumer function package
+        uses: actions/download-artifact@v4
+        with:
+          name: consumer-zip
+          path: terraform/modules/sqs_consumer/dist/
 
       - name: Terraform Init
         working-directory: terraform
