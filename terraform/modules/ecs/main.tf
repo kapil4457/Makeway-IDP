@@ -94,6 +94,17 @@ resource "aws_security_group" "instance" {
   }
 }
 
+# SSH from the ECS Instance Connect Endpoint SG (set var.ssh_source_security_group_id).
+resource "aws_security_group_rule" "instance_ssh_from_eice" {
+  count                    = length(var.ssh_source_security_group_id) == 0 ? 0 : 1
+  type                     = "ingress"
+  from_port                = 22
+  to_port                  = 22
+  protocol                 = "tcp"
+  security_group_id        = aws_security_group.instance.id
+  source_security_group_id = var.ssh_source_security_group_id
+}
+
 resource "aws_launch_template" "this" {
   name_prefix   = "${var.name}-"
   image_id      = data.aws_ssm_parameter.ecs_ami.value

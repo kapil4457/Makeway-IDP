@@ -88,3 +88,9 @@ variable "target_group_arn" {
   type        = string
   default     = null
 }
+
+variable "ssh_source_security_group_id" {
+  description = "Security group ID of the ECS Instance Connect Endpoint. When set, opens TCP/22 on the instance SG only from that SG (no effect when empty)."
+  type        = string
+  default     = ""
+}

@@ -21,7 +21,7 @@ router = APIRouter(prefix="/app", tags=["App Management"])
         "Registers the desired state for a new application. Makeway reconciles the "
         "requested capabilities (services, database, storage, observability, "
         "messaging) into real infrastructure asynchronously. The operation is "
-        "idempotent â€” retrying with the same payload never duplicates resources."
+        "idempotent” retrying with the same payload never duplicates resources."
     ),
     response_model=AppCreateResponse,
     response_description="The app creation request was accepted.",
@@ -52,4 +52,3 @@ def create_app(app_config: AppConfig,
         user=current_user,
         idempotency_key=idempotency_key,
     )
-
