@@ -286,7 +286,11 @@ module "ecs" {
   target_group_arn = module.alb.target_group_arn
 
   task_role_policy_arns        = [aws_iam_policy.control_plane_sqs.arn]
-  ssh_source_security_group_id = var.ecs_ssh_source_security_group_id != "" ? var.ecs_ssh_source_security_group_id : aws_security_group.eice.id
+  # The SSH rule is always wanted; only the source SG varies. The enabled flag
+  # is a literal so the module's count is deterministic even though the EICE SG
+  # id (the fallback target) is unknown until apply.
+  ssh_source_security_group_enabled = true
+  ssh_source_security_group_id      = var.ecs_ssh_source_security_group_id != "" ? var.ecs_ssh_source_security_group_id : aws_security_group.eice.id
 
   environment = {
     DATABASE_URL           = "postgresql://${var.db_username}:${local.db_password}@${module.rds.endpoint}:${module.rds.port}/${var.database_name}"
