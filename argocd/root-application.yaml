@@ -1,0 +1,58 @@
+# Makeway app-of-apps bootstrap.
+#
+# Generates one ArgoCD Application per environment overlay under
+# argocd/apps/<app>/envs/<env>/. Each overlay declares the app's namespaces
+# (base/namespaces.yaml), binds the <app>-<env> namespace, and patches the
+# per-service image tags that Makeway CI keeps updated.
+#
+# The Step-1 worker writes argocd/apps/<app>/ into this repo on every
+# app-creation request (via PR); ArgoCD then rolls each generated Application
+# out on the cluster.
+#
+# This replaces the old single recursive Application over argocd/apps: a
+# recursive sync would also apply the shared apps/<service> kustomization roots
+# standalone into the `argocd` namespace. Apply this file to the cluster once:
+#
+#   kubectl apply -f argocd/root-application.yaml -n argocd
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: makeway-apps
+  namespace: argocd
+spec:
+  goTemplate: true
+  generators:
+    - git:
+        repoURL: https://github.com/kapil4457/Makeway-IDP
+        revision: main
+        directories:
+          - path: argocd/apps/*/envs/*
+  template:
+    metadata:
+      name: '{{ path[2] }}-{{ path[4] }}'
+      namespace: argocd
+      labels:
+        app: '{{ path[2] }}'
+        environment: '{{ path[4] }}'
+        managed-by: makeway
+    spec:
+      project: default
+      source:
+        repoURL: https://github.com/kapil4457/Makeway-IDP
+        targetRevision: main
+        path: '{{ path }}'
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: '{{ path[2] }}-{{ path[4] }}'
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true
+        retry:
+          limit: 5
+          backoff:
+            duration: 5s
+            factor: 2
+            maxDuration: 3m

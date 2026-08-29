@@ -132,6 +132,39 @@ variable "alb_health_check_matcher" {
   default     = "200,301,302,307,404"
 }
 
+# --- App-creation workflow (Step 1 — GitHub Setup / GitOps) ---
+
+variable "github_owner" {
+  description = "GitHub organization/user that owns Makeway's platform repo and the generated app repos."
+  type        = string
+  default     = "kapil4457"
+}
+
+variable "github_pat" {
+  description = "GitHub PAT (repo + workflow scopes) used to create app repos and open gitops PRs. Stored in Secrets Manager. Leave empty: the secret is created empty and must be set before first use."
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
+variable "control_plane_url" {
+  description = "Base URL of the control-plane internal API, reachable from the workers (e.g. http://<alb-dns>.elb.amazonaws.com or the domain in front of the ALB)."
+  type        = string
+}
+
+variable "internal_api_key" {
+  description = "Shared secret for the control-plane internal API (X-Internal-API-Key). Leave empty to auto-generate on apply (stored in encrypted state). Must stay in sync with the control plane."
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
+variable "makeway_platform_repo" {
+  description = "Makeway platform repository (hosts the platform code and argocd/ gitops configs)."
+  type        = string
+  default     = "Makeway-IDP"
+}
+
 # --- Bastion / SSM Session Manager ---
 
 variable "bastion_ssh_public_key_path" {

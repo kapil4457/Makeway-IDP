@@ -137,3 +137,40 @@ python -m scripts.create_user
 - taskkill //F //PID 10072
 - ./tunnel-rds.sh
 ```
+
+
+## ArgoCD setup
+```bash
+kubectl create namespace argocd
+
+kubectl apply \
+  -n argocd \
+  --server-side \
+  --force-conflicts \
+  -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+
+
+# Username : admin
+# Initial password : 3ax9PTgnmb2Vfl5p
+kubectl -n argocd get secret argocd-initial-admin-secret \
+  -o jsonpath="{.data.password}" | base64 -d
+
+
+# Powershell commands
+$version = (Invoke-RestMethod https://api.github.com/repos/argoproj/argo-cd/releases/latest).tag_name
+
+$url = "https://github.com/argoproj/argo-cd/releases/download/" + $version + "/argocd-windows-amd64.exe"
+
+Invoke-WebRequest -Uri $url -OutFile "argocd.exe"
+
+
+
+# Port forward
+kubectl port-forward svc/argocd-server -n argocd 8080:443
+
+
+# argocd commands
+argocd login localhost:8080 --insecure
+argocd account get-user-info
+argocd cluster list
+```

@@ -19,6 +19,17 @@ class RequestRepository:
 
         return self.session.exec(statement).first()
 
+    def get_by_id(
+        self,
+        request_id: int,
+    ) -> Request | None:
+
+        statement = select(Request).where(
+            Request.requestId == request_id
+        )
+
+        return self.session.exec(statement).first()
+
     def create(
         self,
         request: Request,

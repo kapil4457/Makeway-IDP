@@ -15,6 +15,13 @@ class ClusterRepository:
 
         return self.session.exec(clusters).first()
 
+    def get_by_id(self, cluster_id: int) -> Cluster | None:
+        clusters = select(Cluster).where(
+            Cluster.clusterId == cluster_id
+        )
+
+        return self.session.exec(clusters).first()
+
     def get_by_env(self,env_name:str)->Cluster | None:
         clusters = select(Cluster).where(
             Cluster.environment == env_name

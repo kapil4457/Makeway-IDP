@@ -37,20 +37,42 @@ jobs:
       - name: Terraform Validate
         run: terraform validate -no-color
 
+      # Makeway's app-creation workflow bakes CONTROL_PLANE_URL into the
+      # step-1 Lambda env at apply time (so the worker can report status via
+      # the internal API). The URL is non-sensitive config, so it lives in a
+      # GitHub Actions variable and is surfaced to terraform via TF_VAR_*.
+      # Fail fast here instead of letting an empty URL through to apply.
+      - name: Require control-plane URL variable
+        env:
+          MAKEWAY_CONTROL_PLANE_URL: ${{ vars.MAKEWAY_CONTROL_PLANE_URL }}
+        run: |
+          test -n "$MAKEWAY_CONTROL_PLANE_URL" \
+            || { echo "::error::Set MAKEWAY_CONTROL_PLANE_URL in repo Actions variables"; exit 1; }
+
       - name: Terraform Plan
+        env:
+          TF_VAR_control_plane_url: ${{ vars.MAKEWAY_CONTROL_PLANE_URL }}
         run: terraform plan -input=false -out=tfplan -no-color
 
       - name: Show Plan
         run: terraform show -no-color tfplan
 
-      # The consumer module zips its handler with data.archive_file at PLAN time.
-      # The apply job runs on a fresh checkout where dist/ is gitignored, so the
-      # zip must be carried across as an artifact for apply to open it.
+      # The consumer + step-1 modules zip their handlers with data.archive_file
+      # at PLAN time. The apply job runs on a fresh checkout where dist/ is
+      # gitignored, so the zips must be carried across as artifacts for apply to
+      # open them.
       - name: Upload consumer function package
         uses: actions/upload-artifact@v4
         with:
           name: consumer-zip
           path: terraform/modules/sqs_consumer/dist/makeway-app-creation-consumer.zip
+          if-no-files-found: error
+
+      - name: Upload step-1 function package
+        uses: actions/upload-artifact@v4
+        with:
+          name: step1-zip
+          path: terraform/modules/app_creation_step_functions/dist/makeway-app-creation-step1.zip
           if-no-files-found: error
 
       - name: Upload plan artifact
@@ -96,13 +118,20 @@ jobs:
         working-directory: plan
         run: test -f tfplan
 
-      # Restore the consumer function zip next to the plan. Without it the
-      # Lambda apply fails with "reading ZIP file: no such file or directory".
+      # Restore the consumer + step-1 function zips next to the plan. Without
+      # them the Lambda apply fails with "reading ZIP file: no such file or
+      # directory" (dist/ is gitignored).
       - name: Download consumer function package
         uses: actions/download-artifact@v4
         with:
           name: consumer-zip
           path: terraform/modules/sqs_consumer/dist/
+
+      - name: Download step-1 function package
+        uses: actions/download-artifact@v4
+        with:
+          name: step1-zip
+          path: terraform/modules/app_creation_step_functions/dist/
 
       - name: Terraform Init
         working-directory: terraform

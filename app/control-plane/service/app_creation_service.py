@@ -165,6 +165,7 @@ class AppCreationService:
             requestType=RequestType.CREATE_APP,
             requestStatus=RequestStatus.PENDING,
             rawRequest=app_config.model_dump(mode="json"),
+            appId=app.appId,
         )
         request = self.requestRepository.create(request)
         #endregion

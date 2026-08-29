@@ -1,0 +1,13 @@
+# Image patch for __SERVICE_NAME__ in the __ENV__ environment.
+# The service's CI workflow rewrites the image line below after every build on
+# main; ArgoCD rolls out the change.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: __SERVICE_NAME__
+spec:
+  template:
+    spec:
+      containers:
+        - name: __SERVICE_NAME__
+          image: __IMAGE__

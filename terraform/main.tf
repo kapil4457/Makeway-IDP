@@ -40,14 +40,21 @@ resource "random_password" "app_secret_key" {
   special = false
 }
 
+resource "random_password" "internal_api_key" {
+  length  = 48
+  special = false
+}
+
 # Where each generated value is consumed (so the random resources aren't
 # flagged as unused when both vars are supplied in tfvars):
-#   local.db_password    -> aws_db_instance (RDS module), DATABASE_URL
-#   local.app_secret_key -> SECRET_KEY
+#   local.db_password     -> aws_db_instance (RDS module), DATABASE_URL
+#   local.app_secret_key  -> SECRET_KEY
+#   local.internal_api_key -> ECS INTERNAL_API_KEY + Step-1 Lambda INTERNAL_API_KEY
 
 locals {
-  db_password    = var.db_password != "" ? var.db_password : random_password.db_password.result
-  app_secret_key = var.app_secret_key != "" ? var.app_secret_key : random_password.app_secret_key.result
+  db_password      = var.db_password != "" ? var.db_password : random_password.db_password.result
+  app_secret_key   = var.app_secret_key != "" ? var.app_secret_key : random_password.app_secret_key.result
+  internal_api_key = var.internal_api_key != "" ? var.internal_api_key : random_password.internal_api_key.result
 }
 
 # --- Bastion / SSM Session Manager ---
@@ -85,10 +92,6 @@ module "sqs" {
 # --- SQS consumer — app-creation Lambda pool ---
 # A pool of Lambda invocations (capped at `max_concurrency`) that watches the
 # app-creation queue and fans each message out to the Step Functions workflow.
-#
-# state_machine_arn is deliberately empty for now: the Step Functions workflow
-# doesn't exist yet, so the handler consumes and logs messages (nothing is
-# executed). Supply the ARN once the workflow is deployed to start firing it.
 module "sqs_consumer" {
   source = "./modules/sqs_consumer"
 
@@ -98,7 +101,25 @@ module "sqs_consumer" {
   # Resolved relative to the terraform/ root where plan/apply run.
   handler_source_file = "../workers/sqs_consumer/handler.py"
 
-  state_machine_arn = "" # set once the app-creation state machine exists
+  state_machine_arn = module.app_creation.state_machine_arn
+}
+
+# --- App-creation workflow — Step 1 (GitHub Setup) ---
+# State machine + Step-1 Lambda. Creates the app's services monorepo, scaffolds
+# golden-path folders + per-service CI, publishes argocd/apps/<appName>/ gitops
+# into the Makeway platform repo (PR), and reports status to the control plane.
+# The GitHub PAT lives in Secrets Manager and is read at runtime (never baked
+# into artifacts). state_machine_arn feeds the consumer above.
+module "app_creation" {
+  source = "./modules/app_creation_step_functions"
+
+  name                  = "makeway-app-creation-step1"
+  handler_source_dir    = "../workers/step_functions/step_1 - GitHub Setup"
+  github_owner          = var.github_owner
+  github_pat            = var.github_pat
+  control_plane_url     = var.control_plane_url
+  internal_api_key      = local.internal_api_key
+  makeway_platform_repo = var.makeway_platform_repo
 }
 
 # --- ALB (control-plane front door, public subnets) ---
@@ -278,8 +299,11 @@ module "ecs" {
     SQS_REGION             = var.region
     AWS_REGION             = var.region
     AWS_DEFAULT_REGION     = var.region
-    SECRET_KEY             = local.app_secret_key
-    LOG_LEVEL              = "INFO"
+    # The internal API is fail-closed when INTERNAL_API_KEY is unset — the
+    # app-creation workers can't report status without it.
+    INTERNAL_API_KEY = local.internal_api_key
+    SECRET_KEY       = local.app_secret_key
+    LOG_LEVEL        = "INFO"
   }
 }
 

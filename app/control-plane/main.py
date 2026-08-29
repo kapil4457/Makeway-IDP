@@ -9,6 +9,7 @@ from controllers.app_router import router as app_router
 from controllers.cluster_router import router as cluster_router
 from controllers.swagger_controller import router as swagger_router
 from controllers.auth_router import router as auth_router
+from controllers.internal_router import router as internal_router
 from auth.interceptor import AuthInterceptor
 from core.logger import get_logger, set_request_id, setup_logging
 from core.exception_handlers import register_exception_handlers
@@ -92,3 +93,4 @@ app.include_router(app_router)
 app.include_router(cluster_router)
 app.include_router(auth_router)
 app.include_router(swagger_router)
+app.include_router(internal_router)

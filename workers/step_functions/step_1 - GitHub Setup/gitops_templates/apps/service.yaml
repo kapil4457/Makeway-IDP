@@ -1,0 +1,16 @@
+# Service for the __SERVICE_NAME__ golden-path service.
+apiVersion: v1
+kind: Service
+metadata:
+  name: __SERVICE_NAME__
+  labels:
+    app: __SERVICE_NAME__
+    managed-by: makeway
+spec:
+  selector:
+    app: __SERVICE_NAME__
+  ports:
+    - name: http
+      port: 80
+      targetPort: __PORT__
+      protocol: TCP

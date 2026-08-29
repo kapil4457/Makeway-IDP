@@ -35,8 +35,18 @@ def handler(event, context):
             )
             continue
 
+        # Deterministic execution name so at-least-once SQS delivery can't spin
+        # up two overlapping executions for the same request. Step Functions
+        # allows a new execution with the same name once the previous one has
+        # completed, so genuine retries after a failure still start fresh.
+        execution_name = "app-creation-{}-{}".format(
+            body.get("request_id") or "unknown",
+            body.get("job_id") or 0,
+        )
+
         step_functions.start_execution(
             stateMachineArn=STATE_MACHINE_ARN,
+            name=execution_name,
             input=json.dumps(body),
         )
 

@@ -8,6 +8,13 @@ class ServiceRepository:
     def __init__(self, session: Session):
         self.session = session
 
+    def get_by_id(self, svc_id: int) -> Service | None:
+        statement = select(Service).where(
+            Service.svcId == svc_id
+        )
+
+        return self.session.exec(statement).first()
+
     def get_by_name(self, svc_name: str) -> Service | None:
         """
         Get a service by its name.

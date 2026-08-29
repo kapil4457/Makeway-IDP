@@ -15,6 +15,13 @@ class AppRepository:
 
         return self.session.exec(apps).first()
 
+    def get_by_id(self, app_id: int) -> App | None:
+        apps = select(App).where(
+            App.appId == app_id
+        )
+
+        return self.session.exec(apps).first()
+
     def create(self, app: App) -> App:
         """
         Persist a new app within the calling unit of work.

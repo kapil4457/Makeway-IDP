@@ -1,0 +1,18 @@
+# __ENV__ overlay for the __APP_NAME__ app.
+#
+# Imports the app's namespaces (base/) and every service (apps/), then patches
+# each service's image tag. Makeway CI rewrites the patch files
+# (<service>-patch.yaml) after every build on main. Each patch is listed as an
+# object ("- path: ..."), the non-deprecated form of patchesStrategicMerge.
+#
+# There is deliberately no `namespace:` field here: a kustomize namespace field
+# also renames Namespace objects imported from base, colliding every env's
+# namespace into one. Instead ArgoCD places each resource into this Application's
+# destination namespace (__APP_NAME__-__ENV__), which the makeway-apps
+# ApplicationSet sets from the env directory path.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+__SERVICES_YAML__
+patches:
+__PATCHES_YAML__
