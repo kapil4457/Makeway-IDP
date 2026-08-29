@@ -3,11 +3,6 @@ variable "name" {
   type        = string
 }
 
-variable "region" {
-  description = "AWS region the Lambda runs in."
-  type        = string
-}
-
 variable "queue_arn" {
   description = "ARN of the SQS queue the consumer watches."
   type        = string

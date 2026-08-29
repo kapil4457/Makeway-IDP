@@ -93,7 +93,6 @@ module "sqs_consumer" {
   source = "./modules/sqs_consumer"
 
   name      = "makeway-app-creation-consumer"
-  region    = var.region
   queue_arn = module.sqs.arn
 
   # Resolved relative to the terraform/ root where plan/apply run.

@@ -79,13 +79,10 @@ resource "aws_lambda_function" "consumer" {
 
   timeout = var.lambda_timeout_seconds
 
+  # AWS_REGION is Lambda-managed (reserved key) — Lambda always injects it, so
+  # it must not be set here. Only the state machine ARN is an explicit override.
   environment {
-    variables = merge(
-      { AWS_REGION = var.region },
-      var.state_machine_arn != ""
-      ? { APP_CREATION_STATE_MACHINE_ARN = var.state_machine_arn }
-      : {},
-    )
+    variables = var.state_machine_arn != "" ? { APP_CREATION_STATE_MACHINE_ARN = var.state_machine_arn } : {}
   }
 }
 
