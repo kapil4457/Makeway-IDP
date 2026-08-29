@@ -82,6 +82,26 @@ module "sqs" {
   name = var.sqs_queue_name
 }
 
+# --- SQS consumer — app-creation Lambda pool ---
+# A pool of Lambda invocations (capped at `max_concurrency`) that watches the
+# app-creation queue and fans each message out to the Step Functions workflow.
+#
+# state_machine_arn is deliberately empty for now: the Step Functions workflow
+# doesn't exist yet, so the handler consumes and logs messages (nothing is
+# executed). Supply the ARN once the workflow is deployed to start firing it.
+module "sqs_consumer" {
+  source = "./modules/sqs_consumer"
+
+  name      = "makeway-app-creation-consumer"
+  region    = var.region
+  queue_arn = module.sqs.arn
+
+  # Resolved relative to the terraform/ root where plan/apply run.
+  handler_source_file = "../workers/sqs_consumer/handler.py"
+
+  state_machine_arn = "" # set once the app-creation state machine exists
+}
+
 # --- ALB (control-plane front door, public subnets) ---
 # Internet -> ALB (public) -> ECS task ENIs (private). The app SG keeps the
 # tasks unreachable from the internet; only the ALB can talk to them.
@@ -157,7 +177,7 @@ resource "aws_key_pair" "bastion" {
 }
 
 resource "aws_security_group" "bastion" {
-  name        = "makeway-bastion"
+  name = "makeway-bastion"
   # NOTE: do not change this description — `description` is ForceNew and would
   # force a full SG replacement (deadlock: old SG is attached to the instance,
   # and the same SG name can't be recreated until it's gone).
