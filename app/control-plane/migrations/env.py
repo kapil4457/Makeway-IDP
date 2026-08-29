@@ -19,7 +19,7 @@ import database.models  # noqa: F401
 config = context.config
 DATABASE_URL = os.environ.get(
     "DATABASE_URL",
-    "postgresql://postgres:password@localhost:5432/makeway"
+    "postgresql://postgres:password@127.0.0.1:5432/makeway?sslmode=require"
 )
 
 config.set_main_option("sqlalchemy.url",DATABASE_URL)

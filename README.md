@@ -124,3 +124,16 @@ Step Functions: pay-per-state-transition, fully managed, AWS-native. Chosen for 
 cd app/control-plane
 python -m scripts.create_user
  ```
+
+ ## Connecting to RDS from local
+ ```bash
+
+- aws login --profile makeway
+- export $(aws configure export-credentials --profile makeway --format env | tr -d '\r' | xargs)
+- aws sts get-caller-identity
+- winget install Amazon.SessionManagerPlugin
+- export PATH="$PATH:/c/Program Files/Amazon/SessionManagerPlugin/bin"
+- netstat -ano | grep 5432
+- taskkill //F //PID 10072
+- ./tunnel-rds.sh
+```

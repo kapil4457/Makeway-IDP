@@ -12,7 +12,7 @@ from sqlmodel import create_engine, Session
 
 DATABASE_URL = os.environ.get(
     "DATABASE_URL",
-    "postgresql://postgres:password@localhost:5432/makeway",
+    "postgresql://postgres:password@127.0.0.1:5432/makeway?sslmode=require",
 )
 
 # pool_pre_ping avoids stale connections after DB restarts or idle timeouts.
