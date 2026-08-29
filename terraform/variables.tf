@@ -132,16 +132,10 @@ variable "alb_health_check_matcher" {
   default     = "200,301,302,307,404"
 }
 
-variable "ecs_ssh_source_security_group_id" {
-  description = "Security group ID of the ECS Instance Connect Endpoint for SSH (TCP/22) into the container instances. Leave empty to use the built-in bastion EIC endpoint group."
-  type        = string
-  default     = ""
-}
-
-# --- Bastion / EC2 Instance Connect ---
+# --- Bastion / SSM Session Manager ---
 
 variable "bastion_ssh_public_key_path" {
-  description = "Path to an SSH public key for the bastion host. Leave empty to skip creating a key pair (Instance Connect brokers SSH without key material)."
+  description = "Path to an SSH public key for the bastion host. Optional — the bastion is reached via SSM Session Manager (no key material needed), so leave empty to skip creating a key pair entirely."
   type        = string
   default     = ""
 }

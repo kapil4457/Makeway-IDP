@@ -46,7 +46,7 @@ locals {
   app_secret_key = var.app_secret_key != "" ? var.app_secret_key : random_password.app_secret_key.result
 }
 
-# --- Bastion / EC2 Instance Connect ---
+# --- Bastion / SSM Session Manager ---
 # Smallest feasible instance type (t4g.nano, ARM) relies on an arm64 AMI —
 # Amazon Linux 2023 ARM64, latest GA.
 data "aws_ami" "amazon_linux_2023_arm64" {
@@ -131,53 +131,17 @@ module "rds" {
   security_group_ids   = [aws_security_group.rds.id]
 }
 
-# --- Bastion / EC2 Instance Connect ---
+# --- Bastion / SSM Session Manager ---
 # The ALB's security group is internet-facing (listeners 80), but the RDS SG
 # admits traffic only from the ECS task SG. To reach RDS from your laptop
-# (sQleur Electron) we route through a tiny bastion over SSH, and expose SSH
-# (TCP/22) to the container instances via the same Instance Connect endpoint.
+# (sQleur Electron) we route through a tiny bastion via SSM Session Manager
+# port-forwarding. (EC2 Instance Connect Endpoint is not offered in ap-south-1,
+# so SSM is the jump-host path.) The bastion carries the
+# AmazonSSMManagedInstanceCore role below, which is what makes this work.
 
-# Instance Connect Endpoint (EICE) — private connectivity for SSH/SCP without
-# a public IP. Its SG allows SSH into the ECS instances and the bastion.
-resource "aws_security_group" "eice" {
-  name        = "makeway-eice"
-  description = "ECS Instance Connect Endpoint for SSH into container instances and bastion"
-  vpc_id      = module.vpc.vpc_id
-
-  ingress {
-    description      = "SSH from the internet (Instance Connect Endpoint)"
-    from_port        = 22
-    to_port          = 22
-    protocol         = "tcp"
-    cidr_blocks      = ["0.0.0.0/0"]
-    ipv6_cidr_blocks = []
-  }
-
-  egress {
-    from_port        = 0
-    to_port          = 0
-    protocol         = "-1"
-    cidr_blocks      = ["0.0.0.0/0"]
-    ipv6_cidr_blocks = []
-  }
-}
-
-resource "aws_vpc_endpoint" "instance_connect" {
-  vpc_id              = module.vpc.vpc_id
-  service_name        = "com.amazonaws.${var.region}.ec2-instance-connect"
-  vpc_endpoint_type   = "Interface"
-  subnet_ids          = module.vpc.private_subnet_ids
-  security_group_ids  = [aws_security_group.eice.id]
-  private_dns_enabled = true
-
-  tags = {
-    Name = "makeway-ec2-instance-connect"
-  }
-}
-
-# Optional SSH key pair for the bastion. Instance Connect brokers SSH sessions
-# without private key material, so leave bastion_ssh_public_key_path empty to
-# skip creating one entirely.
+# Optional SSH key pair for the bastion (direct SSH is unnecessary — SSM
+# brokers sessions and port-forwards without key material — so leave
+# bastion_ssh_public_key_path empty to skip creating one entirely).
 resource "aws_key_pair" "bastion" {
   count      = var.bastion_ssh_public_key_path == "" ? 0 : 1
   key_name   = "makeway-bastion"
@@ -190,17 +154,12 @@ resource "aws_key_pair" "bastion" {
 
 resource "aws_security_group" "bastion" {
   name        = "makeway-bastion"
-  description = "Security group for the Makeway bastion host"
+  description = "Security group for the Makeway bastion host (SSM-managed; no inbound traffic)"
   vpc_id      = module.vpc.vpc_id
 
-  ingress {
-    description     = "SSH from the Instance Connect Endpoint"
-    from_port       = 22
-    to_port         = 22
-    protocol        = "tcp"
-    security_groups = [aws_security_group.eice.id]
-  }
-
+  # No ingress rules: the bastion is reached only via SSM Session Manager,
+  # which requires no inbound ports. Outbound (to the SSM endpoint and RDS)
+  # is all-open below.
   egress {
     from_port   = 0
     to_port     = 0
@@ -285,12 +244,7 @@ module "ecs" {
   container_image  = var.ecs_image
   target_group_arn = module.alb.target_group_arn
 
-  task_role_policy_arns        = [aws_iam_policy.control_plane_sqs.arn]
-  # The SSH rule is always wanted; only the source SG varies. The enabled flag
-  # is a literal so the module's count is deterministic even though the EICE SG
-  # id (the fallback target) is unknown until apply.
-  ssh_source_security_group_enabled = true
-  ssh_source_security_group_id      = var.ecs_ssh_source_security_group_id != "" ? var.ecs_ssh_source_security_group_id : aws_security_group.eice.id
+  task_role_policy_arns = [aws_iam_policy.control_plane_sqs.arn]
 
   environment = {
     DATABASE_URL           = "postgresql://${var.db_username}:${local.db_password}@${module.rds.endpoint}:${module.rds.port}/${var.database_name}"
@@ -314,7 +268,7 @@ resource "aws_security_group_rule" "rds_from_control_plane" {
 }
 
 # PostgreSQL ingress for the bastion, so sQleur Electron can reach RDS over
-# an SSH tunnel through the Instance Connect Endpoint.
+# an SSM Session Manager port-forward from the bastion.
 resource "aws_security_group_rule" "rds_from_bastion" {
   type                     = "ingress"
   from_port                = 5432

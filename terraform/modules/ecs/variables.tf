@@ -88,15 +88,3 @@ variable "target_group_arn" {
   type        = string
   default     = null
 }
-
-variable "ssh_source_security_group_id" {
-  description = "Security group ID of the ECS Instance Connect Endpoint. Paired with ssh_source_security_group_enabled; when both are set, opens TCP/22 on the instance SG only from that SG."
-  type        = string
-  default     = ""
-}
-
-variable "ssh_source_security_group_enabled" {
-  description = "Whether to create the TCP/22 ingress rule from ssh_source_security_group_id. Decided separately from the id so the count stays deterministic at plan time (the id may be known only after apply)."
-  type        = bool
-  default     = false
-}

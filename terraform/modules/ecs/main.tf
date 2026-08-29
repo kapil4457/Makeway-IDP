@@ -94,19 +94,6 @@ resource "aws_security_group" "instance" {
   }
 }
 
-# SSH from the ECS Instance Connect Endpoint SG (set var.ssh_source_security_group_id).
-# Count is driven by the explicit enabled bool so it never depends on the SG id,
-# which may be known only after apply.
-resource "aws_security_group_rule" "instance_ssh_from_eice" {
-  count                    = var.ssh_source_security_group_enabled ? 1 : 0
-  type                     = "ingress"
-  from_port                = 22
-  to_port                  = 22
-  protocol                 = "tcp"
-  security_group_id        = aws_security_group.instance.id
-  source_security_group_id = var.ssh_source_security_group_id
-}
-
 resource "aws_launch_template" "this" {
   name_prefix   = "${var.name}-"
   image_id      = data.aws_ssm_parameter.ecs_ami.value
