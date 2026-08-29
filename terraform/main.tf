@@ -154,7 +154,10 @@ resource "aws_key_pair" "bastion" {
 
 resource "aws_security_group" "bastion" {
   name        = "makeway-bastion"
-  description = "Security group for the Makeway bastion host (SSM-managed; no inbound traffic)"
+  # NOTE: do not change this description — `description` is ForceNew and would
+  # force a full SG replacement (deadlock: old SG is attached to the instance,
+  # and the same SG name can't be recreated until it's gone).
+  description = "Security group for the Makeway bastion host"
   vpc_id      = module.vpc.vpc_id
 
   # No ingress rules: the bastion is reached only via SSM Session Manager,
