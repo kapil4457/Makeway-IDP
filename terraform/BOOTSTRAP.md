@@ -19,35 +19,58 @@ aws s3api put-bucket-versioning --bucket makeway-terraform-state \
 ```
 
 ### 2. Provide the OIDC owner/repo IDs
-The trust policy uses GitHub's **immutable OIDC subject claim** (`OWNER@OWNER-ID/REPO@REPO-ID`) — required for repos created/renamed after 2026-07-15. The IDs are **required** vars, kept out of git.
+The trust policy uses GitHub's **immutable OIDC subject claim** (`OWNER@OWNER-ID/REPO@REPO-ID`) — required for repos created/renamed after 2026-07-15. The IDs are **required** vars in the bootstrap root, kept out of git.
 
 Find the IDs via the GitHub API:
 ```sh
 curl -s https://api.github.com/repos/<owner>/<repo>   # .owner.id -> github_owner_id
                                                       # .id       -> github_repo_id
 ```
-Create `terraform/terraform.tfvars` (gitignored; copy from `terraform.tfvars.example`):
+Create `terraform/bootstrap/terraform.tfvars` (gitignored):
 ```sh
-cd terraform
-cp terraform.tfvars.example terraform.tfvars
-# edit: set github_owner_id and github_repo_id
+cd terraform/bootstrap
+cat > terraform.tfvars <<'EOF'
+github_owner_id = "<owner-id>"
+github_repo_id  = "<repo-id>"
+EOF
 ```
 
-### 3. Init, validate, plan, apply
+### 3a. Bootstrap — GitHub Actions OIDC identity (own root + own state)
+The provider + role live in `terraform/bootstrap/` with state key
+`bootstrap/terraform.tfstate`. A platform `terraform destroy` never touches
+this state, so CI can always redeploy after a teardown.
 ```sh
-cd terraform
-terraform init -input=false        # configure S3 backend, download providers
-terraform validate -no-color       # syntax + static checks
-terraform plan -input=false -no-color   # preview what will be created
-terraform apply -input=false -auto-approve -no-color   # create the infra
+cd terraform/bootstrap
+terraform init -input=false
+terraform validate -no-color
+terraform plan -input=false -no-color
+terraform apply -input=false -auto-approve -no-color
 ```
-Creates: GitHub OIDC provider, IAM role `github-actions-terraform`, SQS `makeway-requests` + DLQ.
+Creates: GitHub OIDC provider, IAM role `github-actions-terraform` (no other
+resources — explicitly NOT the platform infra).
+
+Record the role ARN (needed in step 5):
+```sh
+terraform output github_actions_role_arn
+```
 
 Verify the live trust policy (should list both `ref:` and `environment:` subjects):
 ```sh
 aws iam get-role --role-name github-actions-terraform \
   --query 'Role.AssumeRolePolicyDocument'
 ```
+
+### 3b. Platform infra (own root + own state)
+```sh
+cd terraform
+terraform init -input=false
+terraform validate -no-color
+terraform plan -input=false -no-color   # preview what will be created
+terraform apply -input=false -auto-approve -no-color   # create the platform
+```
+Creates: SQS `makeway-requests` + DLQ, VPC, ALB, RDS, ECS, bastion.
+The OIDC identity is already provisioned by 3a — the platform root does not
+re-create it.
 
 ### 4. Set up the local AWS credential bootstrap (one-off)
 The SSO `login_session` token is short-lived (~1 min per cache write) and expires mid-apply. To give Terraform a working credential, refresh the session, write the live token to `~/.aws/credentials`, apply, then remove it:
@@ -82,7 +105,7 @@ GitHub requires your auth to write these — set under repo **Settings → Secre
 **Secret:**
 | Name | Value |
 |---|---|
-| `AWS_ROLE_ARN` | `arn:aws:iam::<acct>:role/github-actions-terraform` (from `terraform output github_actions_role_arn`) |
+| `AWS_ROLE_ARN` | from `cd terraform/bootstrap && terraform output github_actions_role_arn` |
 
 **Variables** (prefix can't be `GITHUB_` — reserved by GitHub):
 | Name | Value |
@@ -91,18 +114,28 @@ GitHub requires your auth to write these — set under repo **Settings → Secre
 | `OIDC_GITHUB_REPO_ID` | `<github_repo_id>` (from step 2) |
 | `AWS_REGION` | `ap-south-1` |
 
-These feed the `deploy-infra` workflow: `TF_VAR_github_owner_id` / `TF_VAR_github_repo_id` are injected from the `OIDC_*` variables so plan/apply resolve the required vars on the runner.
+`OIDC_GITHUB_OWNER_ID` / `OIDC_GITHUB_REPO_ID` are still set here for record, but the `deploy-infra` / `destroy-infra` / `deploy-control-plane` workflows no longer inject them as `TF_VAR_*` — the platform root no longer declares the `github_*` variables. Only `AWS_REGION` is used by the workflows (as `vars.AWS_REGION`).
 
 ## After bootstrap
 - CI deploy workflow assumes the role via OIDC. No AWS keys in GitHub.
 - Infra changes are applied by the workflow (`makeway-infra-deploy` env = manual approval gate).
 - The apply job runs in an `environment`, so the OIDC subject is `environment:makeway-infra-deploy` (not `ref:`) — the trust policy must allow both, which it now does.
+- The OIDC identity has **its own Terraform state** (`bootstrap/terraform.tfstate`). A platform destroy (`terraform destroy` in `terraform/`) never removes it, so CI can always redeploy.
 
 ## Useful ops commands
 ```sh
 # verify OIDC provider + role exist
 aws iam list-open-id-connect-providers
 aws iam get-role --role-name github-actions-terraform --query 'Role.Arn'
+
+# OIDC identity lives in its own root/state — manage it separately:
+cd terraform/bootstrap
+terraform init     # first time
+terraform plan     # e.g. to rotate the role, add a policy
+terraform apply
+
+# NEVER destroy this with the platform. If you truly want to remove the OIDC
+# identity too, run `terraform destroy` here AFTER tearing down the platform.
 
 # check SQS + DLQ
 aws sqs get-queue-url --queue-name makeway-requests

@@ -4,10 +4,6 @@ terraform {
       source  = "hashicorp/aws"
       version = "~> 5.0"
     }
-    tls = {
-      source  = "hashicorp/tls"
-      version = "~> 4.0"
-    }
     random = {
       source  = "hashicorp/random"
       version = "~> 3.0"
@@ -33,18 +29,11 @@ provider "aws" {
 resource "random_password" "db_password" {
   length  = 24
   special = false
-
-  # Destroy-order guarantee: the CICD OIDC role is torn down only after every
-  # other resource. These password resources are graph leaves, so anchor them
-  # explicitly (see module.oidc_github_actions note below).
-  depends_on = [module.oidc_github_actions]
 }
 
 resource "random_password" "app_secret_key" {
   length  = 48
   special = false
-
-  depends_on = [module.oidc_github_actions]
 }
 
 # Where each generated value is consumed (so the random resources aren't
@@ -81,25 +70,6 @@ module "vpc" {
   private_subnet_cidrs = var.private_subnet_cidrs
   public_subnet_cidrs  = var.public_subnet_cidrs
   vpc_cidr             = var.vpc_cidr
-
-  # Destroy-order guarantee: keep the CICD OIDC role alive until every other
-  # resource is gone. Almost the whole graph hangs off the VPC, so anchoring
-  # here transitively defers module.oidc_github_actions to the very end of a
-  # destroy. This cannot create a cycle: oidc has no dependencies of its own.
-  depends_on = [module.oidc_github_actions]
-}
-
-module "oidc_github_actions" {
-  source = "./modules/oidc"
-
-  role_name                 = var.github_actions_role_name
-  github_org                = var.github_org
-  github_repo               = var.github_repo
-  github_branch             = var.github_branch
-  github_owner_id           = var.github_owner_id
-  github_repo_id            = var.github_repo_id
-  github_deploy_environment = var.github_deploy_environment
-  attached_policy_arns      = var.github_actions_policy_arns
 }
 
 module "sqs" {

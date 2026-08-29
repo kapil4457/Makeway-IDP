@@ -1,7 +1,6 @@
-output "github_actions_role_arn" {
-  description = "ARN of the GitHub Actions OIDC role. Use this as the AWS_ROLE_ARN GitHub secret."
-  value       = module.oidc_github_actions.role_arn
-}
+# GitHub Actions OIDC identity now lives in terraform/bootstrap/ (own state),
+# so the platform root no longer owns this resource or its output. The role ARN
+# is available from `terraform output github_actions_role_arn` in bootstrap/.
 
 output "app_creation_queue_url" {
   description = "URL of the app-creation SQS queue."

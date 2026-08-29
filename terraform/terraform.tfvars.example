@@ -1,14 +1,12 @@
 # Copy to terraform.tfvars (gitignored) and fill in your values.
 # Never commit this file — it holds the DB password and app secret key.
+#
+# NOTE: the GitHub OIDC IDs (github_owner_id / github_repo_id) moved to
+# terraform/bootstrap/terraform.tfvars — the platform root no longer declares
+# those variables.
 
-# GitHub IDs — find them via the GitHub API:
-#   curl -s https://api.github.com/repos/<owner>/<repo>   # .owner.id  -> github_owner_id
-#                                                         # .id        -> github_repo_id
-github_owner_id = "<owner-id>"
-github_repo_id  = "<repo-id>"
-
-# Optional — everything below has defaults, so this file only NEEDS the IDs
-# above. Override for your values:
+# Optional — everything below has defaults, so this file can be left empty.
+# Override for your values:
 #   availability_zones / private_subnet_cidrs / public_subnet_cidrs
 #   ecs_image = "<account-id>.dkr.ecr.<region>.amazonaws.com/makeway/control-plane:latest"
 #   alb_name / alb_container_port / alb_health_check_path — if your control

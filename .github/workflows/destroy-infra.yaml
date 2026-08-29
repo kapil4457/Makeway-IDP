@@ -6,7 +6,9 @@ on:
       confirm:
         description: >-
           Type "yes" to destroy ALL platform resources (VPC, ECS, RDS, ALB,
-          SQS, NAT, IAM, OIDC). This is permanent and NOT reversible.
+          SQS, NAT, IAM). The GitHub Actions OIDC role/provider live in
+          terraform/bootstrap/ (separate state) and are NOT destroyed.
+          This is permanent and NOT reversible.
         required: true
 
 permissions:
@@ -59,15 +61,9 @@ jobs:
 
       - name: Terraform Plan Destroy
         run: terraform plan -destroy -input=false -out=tfdestroy -no-color
-        env:
-          TF_VAR_github_owner_id: ${{ vars.OIDC_GITHUB_OWNER_ID }}
-          TF_VAR_github_repo_id: ${{ vars.OIDC_GITHUB_REPO_ID }}
 
       - name: Show Destroy Plan
         run: terraform show -no-color tfdestroy
 
       - name: Terraform Destroy
         run: terraform apply -input=false -auto-approve tfdestroy
-        env:
-          TF_VAR_github_owner_id: ${{ vars.OIDC_GITHUB_OWNER_ID }}
-          TF_VAR_github_repo_id: ${{ vars.OIDC_GITHUB_REPO_ID }}
