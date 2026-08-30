@@ -52,11 +52,28 @@ jobs:
       - name: Terraform Init
         run: terraform init -input=false
 
+      - name: Require required TF_VAR inputs
+        env:
+          MAKEWAY_CONTROL_PLANE_URL: ${{ vars.MAKEWAY_CONTROL_PLANE_URL }}
+          MAKEWAY_KUBE_API_ENDPOINT: ${{ vars.MAKEWAY_KUBE_API_ENDPOINT }}
+          MAKEWAY_KUBE_TOKEN: ${{ secrets.MAKEWAY_KUBE_TOKEN }}
+        run: |
+          test -n "$MAKEWAY_CONTROL_PLANE_URL" \
+            || { echo "::error::Set MAKEWAY_CONTROL_PLANE_URL in repo Actions variables"; exit 1; }
+          test -n "$MAKEWAY_KUBE_API_ENDPOINT" \
+            || { echo "::error::Set MAKEWAY_KUBE_API_ENDPOINT in repo Actions variables"; exit 1; }
+          test -n "$MAKEWAY_KUBE_TOKEN" \
+            || { echo "::error::Set MAKEWAY_KUBE_TOKEN in repo Actions secrets"; exit 1; }
+
       - name: Terraform Plan
         id: plan
         run: terraform plan -input=false -out=tfplan -no-color
         env:
           TF_VAR_ecs_image: ${{ steps.image.outputs.image }}
+          TF_VAR_control_plane_url: ${{ vars.MAKEWAY_CONTROL_PLANE_URL }}
+          TF_VAR_kube_api_endpoint: ${{ vars.MAKEWAY_KUBE_API_ENDPOINT }}
+          TF_VAR_kube_token: ${{ secrets.MAKEWAY_KUBE_TOKEN }}
+          TF_VAR_kube_ca_cert: ${{ vars.MAKEWAY_KUBE_CA_CERT || '' }}
 
       - name: Show Plan
         run: terraform show -no-color tfplan
@@ -65,3 +82,7 @@ jobs:
         run: terraform apply -input=false -auto-approve tfplan
         env:
           TF_VAR_ecs_image: ${{ steps.image.outputs.image }}
+          TF_VAR_control_plane_url: ${{ vars.MAKEWAY_CONTROL_PLANE_URL }}
+          TF_VAR_kube_api_endpoint: ${{ vars.MAKEWAY_KUBE_API_ENDPOINT }}
+          TF_VAR_kube_token: ${{ secrets.MAKEWAY_KUBE_TOKEN }}
+          TF_VAR_kube_ca_cert: ${{ vars.MAKEWAY_KUBE_CA_CERT || '' }}

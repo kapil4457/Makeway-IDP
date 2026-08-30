@@ -37,30 +37,32 @@ jobs:
       - name: Terraform Validate
         run: terraform validate -no-color
 
-      # Makeway's app-creation workflow bakes CONTROL_PLANE_URL into the
-      # step-1 Lambda env at apply time (so the worker can report status via
-      # the internal API). The URL is non-sensitive config, so it lives in a
-      # GitHub Actions variable and is surfaced to terraform via TF_VAR_*.
-      # Fail fast here instead of letting an empty URL through to apply.
-      - name: Require control-plane URL variable
+      - name: Require required TF_VAR inputs
         env:
           MAKEWAY_CONTROL_PLANE_URL: ${{ vars.MAKEWAY_CONTROL_PLANE_URL }}
+          MAKEWAY_KUBE_API_ENDPOINT: ${{ vars.MAKEWAY_KUBE_API_ENDPOINT }}
+          MAKEWAY_KUBE_TOKEN: ${{ secrets.MAKEWAY_KUBE_TOKEN }}
         run: |
           test -n "$MAKEWAY_CONTROL_PLANE_URL" \
             || { echo "::error::Set MAKEWAY_CONTROL_PLANE_URL in repo Actions variables"; exit 1; }
+          test -n "$MAKEWAY_KUBE_API_ENDPOINT" \
+            || { echo "::error::Set MAKEWAY_KUBE_API_ENDPOINT in repo Actions variables"; exit 1; }
+          test -n "$MAKEWAY_KUBE_TOKEN" \
+            || { echo "::error::Set MAKEWAY_KUBE_TOKEN in repo Actions secrets"; exit 1; }
 
       - name: Terraform Plan
         env:
           TF_VAR_control_plane_url: ${{ vars.MAKEWAY_CONTROL_PLANE_URL }}
+          TF_VAR_kube_api_endpoint: ${{ vars.MAKEWAY_KUBE_API_ENDPOINT }}
+          TF_VAR_kube_token: ${{ secrets.MAKEWAY_KUBE_TOKEN }}
+          # Optional — empty disables TLS verification against the exposed cluster.
+          TF_VAR_kube_ca_cert: ${{ vars.MAKEWAY_KUBE_CA_CERT || '' }}
         run: terraform plan -input=false -out=tfplan -no-color
 
       - name: Show Plan
         run: terraform show -no-color tfplan
 
-      # The consumer + step-1 modules zip their handlers with data.archive_file
-      # at PLAN time. The apply job runs on a fresh checkout where dist/ is
-      # gitignored, so the zips must be carried across as artifacts for apply to
-      # open them.
+   
       - name: Upload consumer function package
         uses: actions/upload-artifact@v4
         with:
@@ -118,9 +120,7 @@ jobs:
         working-directory: plan
         run: test -f tfplan
 
-      # Restore the consumer + step-1 function zips next to the plan. Without
-      # them the Lambda apply fails with "reading ZIP file: no such file or
-      # directory" (dist/ is gitignored).
+     
       - name: Download consumer function package
         uses: actions/download-artifact@v4
         with:
@@ -138,5 +138,10 @@ jobs:
         run: terraform init -input=false
 
       - name: Terraform Apply
+        env:
+          TF_VAR_control_plane_url: ${{ vars.MAKEWAY_CONTROL_PLANE_URL }}
+          TF_VAR_kube_api_endpoint: ${{ vars.MAKEWAY_KUBE_API_ENDPOINT }}
+          TF_VAR_kube_token: ${{ secrets.MAKEWAY_KUBE_TOKEN }}
+          TF_VAR_kube_ca_cert: ${{ vars.MAKEWAY_KUBE_CA_CERT || '' }}
         working-directory: terraform
         run: terraform apply -input=false -auto-approve ../plan/tfplan
