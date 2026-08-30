@@ -60,3 +60,76 @@ variable "lambda_memory_mb" {
   type        = number
   default     = 256
 }
+
+# --- Step 2 (Crossplane infra provisioning) ---------------------------------
+
+variable "step2_name" {
+  description = "Name of the Step-2 (Crossplane Provisioning) Lambda."
+  type        = string
+  default     = "makeway-app-creation-step2"
+}
+
+variable "step2_handler_source_dir" {
+  description = "Directory containing the Step-2 handler.py and its claim_templates/ folder. Zipped with the templates at the zip root (the handler resolves them relative to __file__)."
+  type        = string
+}
+
+variable "step2_timeout_seconds" {
+  description = "Step-2 Lambda timeout (applies Claims, reads connection Secrets, provisions IAM + Secrets Manager, commits gitops)."
+  type        = number
+  default     = 900
+}
+
+variable "step2_memory_mb" {
+  description = "Step-2 Lambda memory (stdlib-only + boto3 — modest footprint)."
+  type        = number
+  default     = 256
+}
+
+variable "kube_api_endpoint" {
+  description = "Base URL of the (exposed) cluster kube-apiserver the Step-2 Lambda reaches, e.g. https://k8s.makeway.dev (pinggy/ngrok/ingress in front of the local cluster)."
+  type        = string
+}
+
+variable "kube_ca_cert" {
+  description = "Base64 CA bundle of the exposed cluster (KUBE_CA_CERT). Empty disables TLS verification — required for a raw-TCP tunnel (e.g. pinggy), where the apiserver's self-signed cert can't match the tunnel hostname."
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
+variable "kube_token" {
+  description = "Bearer token for a 'makeway-worker' ServiceAccount on the cluster, scoped to create Claims / read Secrets in app namespaces."
+  type        = string
+  sensitive   = true
+}
+
+variable "secrets_prefix" {
+  description = "Prefix (no leading/trailing slash) of Secrets Manager secret names the Step-2 Lambda writes, e.g. 'makeway'. Secrets are named {prefix}/{app}/{env}/{capability-slug}."
+  type        = string
+  default     = "makeway"
+}
+
+variable "step2_wait_seconds" {
+  description = "Pause between Claim checks in the state-machine Wait/Check/Choice loop (RDS can take 10-15 min)."
+  type        = number
+  default     = 30
+}
+
+variable "step2_max_attempts" {
+  description = "Budget of Check iterations before the Step-2 flow fails (max_attempts * wait_seconds ≈ total infra budget)."
+  type        = number
+  default     = 30
+}
+
+variable "rds_publicly_accessible" {
+  description = "Local-cluster seam: expose RDS publicly (pods run off-VPC). Set false on managed EKS."
+  type        = bool
+  default     = true
+}
+
+variable "rds_ingress_cidr" {
+  description = "CIDR allowed inbound on 5432 for RDS. Local cluster: the machine's public IP. Managed EKS: the worker-node / VPC CIDR."
+  type        = string
+  default     = "0.0.0.0/0"
+}

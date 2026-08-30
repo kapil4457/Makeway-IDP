@@ -1,0 +1,20 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: makeway-crossplane
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/kapil4457/Makeway-IDP
+    path: crossplane
+    targetRevision: main
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: crossplane-system
+  syncPolicy:
+    automated:
+      selfHeal: true
+      prune: true
+    syncOptions:
+      - CreateNamespace=true

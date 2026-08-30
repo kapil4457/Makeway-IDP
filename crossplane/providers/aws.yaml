@@ -1,0 +1,75 @@
+apiVersion: pkg.crossplane.io/v1
+kind: Provider
+metadata:
+  name: provider-family-aws
+spec:
+  package: xpkg.upbound.io/upbound/provider-family-aws:v2.7.1
+  packagePullPolicy: IfNotPresent
+---
+apiVersion: pkg.crossplane.io/v1
+kind: Provider
+metadata:
+  name: provider-aws-s3
+spec:
+  package: xpkg.upbound.io/upbound/provider-aws-s3:v2.7.1
+  packagePullPolicy: IfNotPresent
+---
+apiVersion: pkg.crossplane.io/v1
+kind: Provider
+metadata:
+  name: provider-aws-sqs
+spec:
+  package: xpkg.upbound.io/upbound/provider-aws-sqs:v2.7.1
+  packagePullPolicy: IfNotPresent
+---
+apiVersion: pkg.crossplane.io/v1
+kind: Provider
+metadata:
+  name: provider-aws-sns
+spec:
+  package: xpkg.upbound.io/upbound/provider-aws-sns:v2.7.1
+  packagePullPolicy: IfNotPresent
+---
+apiVersion: pkg.crossplane.io/v1
+kind: Provider
+metadata:
+  name: provider-aws-rds
+spec:
+  package: xpkg.upbound.io/upbound/provider-aws-rds:v2.7.1
+  packagePullPolicy: IfNotPresent
+---
+apiVersion: pkg.crossplane.io/v1
+kind: Provider
+metadata:
+  name: provider-aws-ec2
+spec:
+  package: xpkg.upbound.io/upbound/provider-aws-ec2:v2.7.1
+  packagePullPolicy: IfNotPresent
+---
+apiVersion: pkg.crossplane.io/v1
+kind: Provider
+metadata:
+  name: provider-aws-secretsmanager
+spec:
+  package: xpkg.upbound.io/upbound/provider-aws-secretsmanager:v2.7.1
+  packagePullPolicy: IfNotPresent
+---
+apiVersion: pkg.crossplane.io/v1
+kind: Provider
+metadata:
+  name: provider-aws-iam
+spec:
+  package: xpkg.upbound.io/upbound/provider-aws-iam:v2.7.1
+  packagePullPolicy: IfNotPresent
+---
+# Crossplane v2 pipeline mode: every Composition below is a single
+# function-patch-and-transform step. The function is what turns the XR's
+# parameters into the composed Managed Resources (and aggregates their
+# connectionDetails into the XR's connection Secret).
+apiVersion: pkg.crossplane.io/v1
+kind: Function
+metadata:
+  name: function-patch-and-transform
+spec:
+  package: xpkg.upbound.io/crossplane-contrib/function-patch-and-transform:v0.10.9
+  packagePullPolicy: IfNotPresent

@@ -14,7 +14,11 @@ from sqlmodel import Session
 from dependencies.database import get_database_session
 from exceptions.base import UnauthorizedException
 from repository.app_repository import AppRepository
+from repository.capability_access_repository import CapabilityAccessRepository
+from repository.capability_repository import CapabilityRepository
 from repository.cluster_repository import ClusterRepository
+from repository.deployment_setup_repository import DeploymentSetupRepository
+from repository.infra_requirement_repository import InfraRequirementRepository
 from repository.job_repository import JobRepository
 from repository.request_repository import RequestRepository
 from repository.service_repository import ServiceRepository
@@ -52,4 +56,8 @@ def get_internal_api_service(
         appRepository=AppRepository(session),
         serviceRepository=ServiceRepository(session),
         clusterRepository=ClusterRepository(session),
+        capabilityRepository=CapabilityRepository(session),
+        capabilityAccessRepository=CapabilityAccessRepository(session),
+        infraRequirementRepository=InfraRequirementRepository(session),
+        deploymentSetupRepository=DeploymentSetupRepository(session),
     )

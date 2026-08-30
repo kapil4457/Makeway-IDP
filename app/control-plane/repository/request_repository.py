@@ -30,6 +30,20 @@ class RequestRepository:
 
         return self.session.exec(statement).first()
 
+    def get_by_app(
+        self,
+        app_id: int,
+    ) -> Request | None:
+        """Most recent request for an app (orders by requestId desc)."""
+
+        statement = (
+            select(Request)
+            .where(Request.appId == app_id)
+            .order_by(Request.requestId.desc())
+        )
+
+        return self.session.exec(statement).first()
+
     def create(
         self,
         request: Request,

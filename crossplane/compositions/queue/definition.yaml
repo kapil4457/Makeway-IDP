@@ -1,0 +1,86 @@
+# XRD: Makeway MessageQueue capability — the platform team's contract for
+# "give me an SQS queue (with a dead-letter queue)" that the Step-2 Lambda
+# renders XR instances against.
+#   makeway.io / v1beta1 / MessageQueue
+#
+# One XR instance in a namespace grants one SQS queue + its DLQ. The instance is
+# applied in {appName}-{env}; connection details (queue URL + ARN) land back in
+# that namespace for the Step-2 Lambda to pick up.
+#
+# This maps to a single entry in the Control Plane's MessagingConfig.queue list
+# (dto/configs/messaging_config.py); the Lambda creates one MessageQueue
+# instance per queue entry. Defaults mirror the platform SQS module
+# (terraform/modules/sqs/): 60s visibility, 4-day retention, DLQ after 3
+# receives with 14-day retention.
+apiVersion: apiextensions.crossplane.io/v2
+kind: CompositeResourceDefinition
+metadata:
+  name: messagequeues.makeway.io
+  labels:
+    managed-by: makeway
+spec:
+  scope: Namespaced
+  group: makeway.io
+  names:
+    kind: MessageQueue
+    plural: messagequeues
+    singular: messagequeue
+    listKind: MessageQueueList
+  versions:
+    - name: v1beta1
+      served: true
+      referenceable: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          required:
+            - spec
+          properties:
+            spec:
+              type: object
+              required:
+                - parameters
+              properties:
+                # Where the function aggregates the composed connection details
+                # (named by the Step-2 Lambda, defaults to {xrName}-connection).
+                writeConnectionSecretToRef:
+                  type: object
+                  properties:
+                    name:
+                      type: string
+                      minLength: 1
+                      maxLength: 253
+                parameters:
+                  type: object
+                  required:
+                    - queueName
+                  properties:
+                    queueName:
+                      type: string
+                      minLength: 1
+                      maxLength: 80
+                      pattern: ^[a-zA-Z0-9_-]+$
+                      description: "Base queue name (the DLQ is derived as {queueName}-dlq). Matches QueueConfig.name."
+                    region:
+                      type: string
+                      default: ap-south-1
+                      description: "AWS region where the queue is created."
+                    visibilityTimeoutSeconds:
+                      type: integer
+                      default: 60
+                      description: "Visibility timeout in seconds (platform default)."
+                    messageRetentionSeconds:
+                      type: integer
+                      default: 345600
+                      description: "Message retention in seconds (4 days, platform default)."
+                    dlqEnabled:
+                      type: boolean
+                      default: true
+                      description: "Create a DLQ and wire a redrive policy. Disable for fire-and-forget queues."
+                    maxReceiveCount:
+                      type: integer
+                      default: 3
+                      description: "Max receives before a message moves to the DLQ."
+                    dlqArn:
+                      type: string
+                      description: "ARN of the derived DLQ ({queueName}-dlq). Provided by the Step-2 Lambda so the redrive policy can reference it without a cross-resource patch."

@@ -10,18 +10,28 @@ from sqlmodel import Session
 
 from core import get_logger
 from database.models.app import App
+from database.models.capability import Capability
 from database.models.job import Job
 from database.models.request import Request
+from dto.enums.capability_status import CapabilityStatus
 from dto.enums.job_status import JobStatus
 from dto.enums.job_step import JobStep
 from dto.enums.request_status import RequestStatus
-from dto.request.internal import InternalStatusUpdateRequest
+from dto.request.internal import (
+    InternalCapabilityOutput,
+    InternalDeploymentSetupReport,
+    InternalStatusUpdateRequest,
+)
 from exceptions.base import (
     BadRequestException,
     NotFoundException,
 )
 from repository.app_repository import AppRepository
+from repository.capability_access_repository import CapabilityAccessRepository
+from repository.capability_repository import CapabilityRepository
 from repository.cluster_repository import ClusterRepository
+from repository.deployment_setup_repository import DeploymentSetupRepository
+from repository.infra_requirement_repository import InfraRequirementRepository
 from repository.job_repository import JobRepository
 from repository.request_repository import RequestRepository
 from repository.service_repository import ServiceRepository
@@ -51,6 +61,10 @@ class InternalApiService:
         appRepository: AppRepository,
         serviceRepository: ServiceRepository,
         clusterRepository: ClusterRepository,
+        capabilityRepository: CapabilityRepository,
+        capabilityAccessRepository: CapabilityAccessRepository,
+        infraRequirementRepository: InfraRequirementRepository,
+        deploymentSetupRepository: DeploymentSetupRepository,
     ):
         self.session = session
         self.requestRepository = requestRepository
@@ -58,6 +72,10 @@ class InternalApiService:
         self.appRepository = appRepository
         self.serviceRepository = serviceRepository
         self.clusterRepository = clusterRepository
+        self.capabilityRepository = capabilityRepository
+        self.capabilityAccessRepository = capabilityAccessRepository
+        self.infraRequirementRepository = infraRequirementRepository
+        self.deploymentSetupRepository = deploymentSetupRepository
 
     # ------------------------------------------------------------------ #
     # Read-side: what the state machine needs to execute a step
@@ -72,13 +90,13 @@ class InternalApiService:
         environments: [...], job: {jobId, status}}``
 
         ``environments`` is derived from the distinct ``cluster.environment``
-        of the request's services (an ``environment`` table no longer exists —
-        the cluster carries the environment). ``serviceType`` is emitted as the
+        of the request's services . ``serviceType`` is emitted as the
         wire value (``fast-api``, ``node-js``, ``spring-boot``) so workers can
         map it directly to a golden-path template.
         """
         request = self._get_request(request_id)
         app = self._resolve_app(request)
+        job = self.jobRepository.get_by_request_id(request.requestId)
 
         services = self.serviceRepository.get_by_app(app.appId)
 
@@ -94,7 +112,37 @@ class InternalApiService:
             if cluster is not None and cluster.environment not in environments:
                 environments.append(cluster.environment)
 
-        job = self.jobRepository.get_by_request_id(request.requestId)
+        # Capabilities are environment-scoped: resolved per-capability via the
+        # services each capability grants access to. This gives the Step-2
+        # (provision-infra / Crossplane) worker the desired config for each
+        # capability and the namespace its Claim must land in ({appName}-{env}).
+        capabilities = []
+        for cap in self.capabilityRepository.get_by_app(app.appId):
+            accesses = self.capabilityAccessRepository.get_by_capability(cap.capabilityId)
+            env_for_cap = None
+            service_names = []
+            for access in accesses:
+                svc = self.serviceRepository.get_by_id(access.serviceId)
+                if svc is None:
+                    continue
+                service_names.append(svc.svcName)
+                cluster = self.clusterRepository.get_by_id(svc.clusterId)
+                if cluster is not None and env_for_cap is None:
+                    env_for_cap = cluster.environment
+
+            infra = self.infraRequirementRepository.get_by_capability(cap.capabilityId)
+
+            capabilities.append(
+                {
+                    "capabilityId": cap.capabilityId,
+                    "capabilityType": cap.capabilityType,
+                    "status": cap.status.value,
+                    "config": infra.config if infra else None,
+                    "environment": env_for_cap,
+                    "namespace": f"{app.appName}-{env_for_cap}" if env_for_cap else None,
+                    "accessToServices": service_names,
+                }
+            )
 
         return {
             "app": {
@@ -110,6 +158,7 @@ class InternalApiService:
                 for svc in services
             ],
             "environments": environments,
+            "capabilities": capabilities,
             "job": {
                 "jobId": job.jobId if job else None,
                 "status": job.status.value if job else None,
@@ -151,8 +200,8 @@ class InternalApiService:
         app.modifiedBy = "makeway-worker"
         if payload.appRepoUrl:
             app.appRepoUrl = payload.appRepoUrl
-        if payload.gitOpsRepoUrl:
-            app.gitOpsRepoUrl = payload.gitOpsRepoUrl
+        if payload.gitOpsPath:
+            app.gitOpsPath = payload.gitOpsPath
 
         if payload.serviceRepoPaths:
             for entry in payload.serviceRepoPaths:
@@ -168,6 +217,8 @@ class InternalApiService:
 
         request.requestStatus = _JOB_TO_REQUEST_STATUS[status]
         request.modifiedBy = "makeway-worker"
+
+        self._apply_capability_outputs(request, payload.capabilities)
 
         self.session.commit()
 
@@ -188,6 +239,70 @@ class InternalApiService:
             "jobId": job.jobId,
             "status": status.value,
         }
+
+    def record_deployment_setup(
+        self,
+        report: InternalDeploymentSetupReport,
+    ) -> dict:
+        """Persist a service's rollout state as reported by the deploy reporter.
+
+        The ArgoCD/rollout reporter calls this with the sync/health outcome for
+        a service. The service must exist (``svcId``), and reports are
+        keyed to a ``serviceId`` via ``DeploymentSetupRepository.upsert`` so a
+        retry reconciles instead of duplicating rows. ``status`` is persisted
+        verbatim — the read side derives health from its meaning
+        (``success`` → healthy, ``failed``/``errorMessage`` → unhealthy, else
+        unknown), so unknown verbatim values keep the endpoint honest.
+
+        All writes commit in one unit of work, matching the status callback.
+        """
+        svc = self.serviceRepository.get_by_id(report.svcId)
+        if svc is None:
+            raise NotFoundException(
+                message=f"Service {report.svcId} not found.",
+                error_code="SERVICE_NOT_FOUND",
+            )
+
+        values = {"status": report.status}
+        if report.argocdAppName is not None:
+            values["argocdAppName"] = report.argocdAppName
+        if report.lastSyncedAt is not None:
+            values["lastSyncedAt"] = report.lastSyncedAt
+        if report.errorMessage is not None:
+            values["errorMessage"] = report.errorMessage
+
+        self.deploymentSetupRepository.upsert(report.svcId, values)
+        self.session.commit()
+
+        return {
+            "message": "Deployment setup recorded.",
+            "svcId": report.svcId,
+            "status": report.status,
+        }
+
+    def list_deployment_group_services(self, app_name: str, env: str) -> dict:
+        """Resolve the deployment group for one ``(app, env)`` ArgoCD instance.
+
+        The ArgoCD ApplicationSet creates one Application per ``(app, env)``
+        overlay, labeled ``app``/``environment``. The health reporter lists
+        those Applications and needs the matching services to report against —
+        this is that lookup: app must exist, then all services belonging to the
+        app scoped to the cluster for ``env``. An env with no cluster yet
+        returns an honest empty group (the reporter skips it).
+        """
+        app = self.appRepository.get_by_name(app_name)
+        if app is None:
+            raise NotFoundException(
+                message=f"App '{app_name}' not found.",
+                error_code="APP_NOT_FOUND",
+            )
+
+        cluster = self.clusterRepository.get_by_env(env)
+        if cluster is None:
+            return {"env": env, "svcIds": []}
+
+        services = self.serviceRepository.get_by_app(app.appId, cluster_id=cluster.clusterId)
+        return {"env": env, "svcIds": [svc.svcId for svc in services]}
 
     # ------------------------------------------------------------------ #
     # Helpers
@@ -219,13 +334,7 @@ class InternalApiService:
         return job
 
     def _resolve_app(self, request: Request) -> App:
-        """The app a request belongs to.
-
-        ``Request.appId`` is now written during submission, but requests
-        created before that change may still have it null — fall back to the
-        ``app_name`` captured in ``rawRequest``, which is the same data the
-        request was built from.
-        """
+        """The app a request belongs to."""
         app = None
         if request.appId:
             app = self.appRepository.get_by_id(request.appId)
@@ -239,6 +348,70 @@ class InternalApiService:
                 error_code="APP_NOT_FOUND",
             )
         return app
+
+    def _apply_capability_outputs(
+        self,
+        request: Request,
+        capabilities: list[InternalCapabilityOutput] | None,
+    ) -> None:
+        """Persist the Step-2 (Crossplane) worker's per-capability results.
+
+        For each reported capability:
+          - validates it belongs to this request's app,
+          - writes ``InfraRequirement.outputRef`` / ``secretRef``,
+          - rolls ``Capability.status`` up to the reported per-capability status.
+        """
+        if not capabilities:
+            return
+
+        app = self._resolve_app(request)
+
+        for report in capabilities:
+            capability_id = report.capabilityId
+            cap = self.capabilityRepository.get_by_id(capability_id)
+            if cap is None:
+                raise NotFoundException(
+                    message=f"Capability {capability_id} not found.",
+                    error_code="CAPABILITY_NOT_FOUND",
+                )
+
+            # Guard against a worker reporting a capability from another app.
+            owned = self.capabilityRepository.get_by_app(app.appId)
+            if all(c.capabilityId != capability_id for c in owned):
+                raise BadRequestException(
+                    message=f"Capability {capability_id} does not belong to request's app.",
+                    error_code="CAPABILITY_NOT_IN_APP",
+                )
+
+            infra = self.infraRequirementRepository.get_by_capability(capability_id)
+            if infra is None:
+                raise NotFoundException(
+                    message=f"No infra requirement for capability {capability_id}.",
+                    error_code="INFRA_REQUIREMENT_NOT_FOUND",
+                )
+
+            if report.outputRef is not None:
+                infra.outputRef = report.outputRef
+            if report.secretRef is not None:
+                infra.secretRef = report.secretRef
+            if report.errorMessage is not None:
+                infra.errorMessage = report.errorMessage
+            infra.modifiedBy = "makeway-worker"
+
+            cap.status = self._parse_capability_status(report.status)
+            if report.errorMessage is not None:
+                cap.errorMessage = report.errorMessage
+            cap.modifiedBy = "makeway-worker"
+
+    @staticmethod
+    def _parse_capability_status(value: str) -> CapabilityStatus:
+        try:
+            return CapabilityStatus(value)
+        except ValueError:
+            raise BadRequestException(
+                message=f"Unknown capability status '{value}'.",
+                error_code="INVALID_CAPABILITY_STATUS",
+            )
 
     @staticmethod
     def _parse_status(value: str) -> JobStatus:

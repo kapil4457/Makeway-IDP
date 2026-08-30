@@ -10,30 +10,30 @@ class AppConfig(pydantic.BaseModel):
         json_schema_extra={
             "examples": [
                 {
-                    "app_name": "order-service",
-                    "team_name": "orders",
+                    "app_name": "zomato",
+                    "team_name": "platform",
                     "env_config": [
                         {
-                            "env": "dev",
+                            "env": "qa",
                             "services": [
                                 {
                                     "service_type": "fast-api",
-                                    "service_name": "orders-api",
+                                    "service_name": "order-service",
                                 },
                                 {
                                     "service_type": "node-js",
-                                    "service_name": "web",
+                                    "service_name": "media-service",
                                 },
                             ],
                             "capabilities": [
                                 {
                                     "config": {
                                         "type": "rel_database",
-                                        "name": "orders",
+                                        "name": "order",
                                         "username": "orders_admin",
                                         "capacity": 5,
                                     },
-                                    "access_to": ["orders-api"],
+                                    "access_to": ["order-service"],
                                 },
                                 {
                                     "config": {
@@ -43,25 +43,16 @@ class AppConfig(pydantic.BaseModel):
                                             "cloudfront": True,
                                         },
                                     },
-                                    "access_to": ["orders-api"],
+                                    "access_to": ["order-service","media-service"],
                                 },
                                 {
                                     "config": {
                                         "type": "messaging",
                                         "notification": True,
-                                        "queue": [{"name": "orders-queue"}],
+                                        "queue": [{"name": "order-queue"}],
                                     },
-                                    "access_to": ["orders-api", "web"],
-                                },
-                                {
-                                    "config": {
-                                        "type": "observability",
-                                        "logs": True,
-                                        "metrics": True,
-                                        "traces": False,
-                                    },
-                                    "access_to": ["orders-api", "web"],
-                                },
+                                    "access_to": ["order-service"],
+                                }
                             ],
                         }
                     ],

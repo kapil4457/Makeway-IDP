@@ -5,12 +5,18 @@
 # terraform/bootstrap/terraform.tfvars — the platform root no longer declares
 # those variables.
 
-# Optional — everything below has defaults, so this file can be left empty.
-# Override for your values:
-#   availability_zones / private_subnet_cidrs / public_subnet_cidrs
-#   ecs_image = "<account-id>.dkr.ecr.<region>.amazonaws.com/makeway/control-plane:latest"
-#   alb_name / alb_container_port / alb_health_check_path — if your control
-#   plane serves a health endpoint elsewhere (default probes /docs).
+# App-creation workflow (Step 1 — GitHub Setup):
+# In CI the required variables come from GitHub Actions:
+#   control_plane_url  <- vars.MAKEWAY_CONTROL_PLANE_URL   (TF_VAR_control_plane_url)
+#   kube_api_endpoint  <- vars.MAKEWAY_KUBE_API_ENDPOINT   (TF_VAR_kube_api_endpoint)
+#   kube_ca_cert       <- vars.MAKEWAY_KUBE_CA_CERT        (TF_VAR_kube_ca_cert, empty for the pinggy TCP tunnel)
+#   kube_token         <- secrets.MAKEWAY_KUBE_TOKEN       (TF_VAR_kube_token)
+# Secrets (internal_api_key, github_pat) are auto-generated / stored in Secrets
+# Manager and never passed through CI.
+# For a local deploy supply the non-secret overrides you care about, e.g.:
+#   control_plane_url = "http://<alb-dns>.elb.amazonaws.com"
+#   github_owner      = "kapil4457"
+#   makeway_platform_repo = "Makeway-IDP"
 
 # Secrets are auto-generated on first apply when left empty. Pin values here
 # only if you want them under your control (then they live in state):

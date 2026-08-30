@@ -1,0 +1,40 @@
+# Namespace isolation for the __APP_NAME__ app — applied by every __APP_NAME__
+# env overlay into its own namespace ({app}-{env}), like the Namespaces they
+# live in.
+#
+# Two NetworkPolicies give per-app tenant separation at the network layer:
+#   1. default-deny-ingress         — block ALL inbound traffic: cross-namespace
+#                                     pods (a Swiggy pod in swiggy-qa cannot
+#                                     reach a Zomato pod in zomato-qa even if it
+#                                     learns the ClusterIP), external clients,
+#                                     anything not explicitly allowed below.
+#   2. allow-same-namespace-ingress — the app's own services talk to each other
+#                                     within {app}-{env}. A golden-path
+#                                     microservice (orders-api -> web) is
+#                                     exactly this: ClusterIP Services in one
+#                                     namespace, no Ingress.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+  labels:
+    managed-by: makeway
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+  ingress: []  # deny all inbound
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-same-namespace-ingress
+  labels:
+    managed-by: makeway
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector: {}  # any pod in {app}-{env} — the app's own services

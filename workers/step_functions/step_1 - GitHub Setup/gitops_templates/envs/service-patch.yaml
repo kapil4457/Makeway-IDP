@@ -1,6 +1,7 @@
 # Image patch for __SERVICE_NAME__ in the __ENV__ environment.
-# The service's CI workflow rewrites the image line below after every build on
-# main; ArgoCD rolls out the change.
+# The service's CI workflow rewrites the image line below when the branch that
+# promotes __ENV__ merges (feature/* -> qa, release/* -> uat, main -> prod);
+# ArgoCD rolls out the change.
 apiVersion: apps/v1
 kind: Deployment
 metadata:

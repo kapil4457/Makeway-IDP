@@ -1,0 +1,95 @@
+# XRD: Makeway RelationalDatabase capability — the platform team's contract for
+# "give me a PostgreSQL database" that the Step-2 Lambda renders XR instances
+# against.  makeway.io / v1beta1 / RelationalDatabase
+#
+# One XR instance in a namespace grants one RDS instance (+ its Security Group +
+# subnet group). The instance is applied in {appName}-{env}; Crossplane expands
+# it into the Managed Resources in the Composition and the function aggregates
+# the connection Secret back into the same namespace.
+#
+# The XRD is the guardrail: a developer can only turn the knobs below. They
+# cannot request an instance class, engine, or VPC placement — those are the
+# platform team's, locked inside the Composition. `capacity` is the single
+# database-size dial (1 = smallest … 10 = largest), matching the Control Plane's
+# DatabaseConfig.capacity (dto/configs/database_config.py).
+apiVersion: apiextensions.crossplane.io/v2
+kind: CompositeResourceDefinition
+metadata:
+  name: relationaldatabases.makeway.io
+  labels:
+    managed-by: makeway
+spec:
+  scope: Namespaced
+  group: makeway.io
+  names:
+    kind: RelationalDatabase
+    plural: relationaldatabases
+    singular: relationaldatabase
+    listKind: RelationalDatabaseList
+  versions:
+    - name: v1beta1
+      served: true
+      referenceable: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          required:
+            - spec
+          properties:
+            spec:
+              type: object
+              required:
+                - parameters
+              properties:
+                # Where the function aggregates the composed connection details
+                # (named by the Step-2 Lambda, defaults to {xrName}-connection).
+                writeConnectionSecretToRef:
+                  type: object
+                  properties:
+                    name:
+                      type: string
+                      minLength: 1
+                      maxLength: 253
+                parameters:
+                  type: object
+                  required:
+                    - databaseName
+                  properties:
+                    databaseName:
+                      type: string
+                      minLength: 1
+                      maxLength: 63
+                      pattern: ^[a-z0-9_]+$
+                      description: "Name of the initial database inside the RDS instance (e.g. orders). Matches DatabaseConfig.name."
+                    masterUsername:
+                      type: string
+                      minLength: 1
+                      maxLength: 63
+                      default: makeway_admin
+                      description: "Master username for the RDS instance. Defaults to makeway_admin when the capability omits username."
+                    capacity:
+                      type: integer
+                      minimum: 1
+                      maximum: 10
+                      default: 5
+                      description: "Capacity tier (1 = smallest, 10 = largest). The Composition maps it to an RDS instance class."
+                    region:
+                      type: string
+                      default: ap-south-1
+                      description: "AWS region where the database is created."
+                    engineVersion:
+                      type: string
+                      default: "17"
+                      description: "PostgreSQL engine major version (matches the platform RDS module default)."
+                    publiclyAccessible:
+                      type: boolean
+                      default: false
+                      description: "Local-cluster escape hatch. On the k3d/kind cluster the app runs off-VPC, so to reach RDS from a pod set true and open ingressSourceCidr. On managed EKS this stays false (VPC-only endpoint)."
+                    ingressSourceCidr:
+                      type: string
+                      default: "__PLATFORM_VPC_CIDR__"
+                      description: "CIDR allowed inbound on TCP 5432. On managed EKS this becomes the worker-node Security Group; on the local cluster, the machine's public IP."
+# NOTE: the initial password is NOT an XR knob. The Step-2 Lambda generates it,
+# stores it in a K8s Secret named {claimName}-creds in the namespace, and the
+# Composition references it via the DBInstance passwordSecretRef. The password
+# never appears in the XR spec (only a reference to the Secret).

@@ -15,6 +15,18 @@ class InfraRequirementRepository:
 
         return self.session.exec(statement).first()
 
+    def get_by_capability(self, capability_id: int) -> InfraRequirement | None:
+        """The 1:1 InfraRequirement holding a capability's desired config.
+
+        ``config`` (the serialized capability config) lives here, not on the
+        Capability row — the provision-infra worker reads it to render a Claim.
+        """
+        statement = select(InfraRequirement).where(
+            InfraRequirement.capabilityId == capability_id
+        )
+
+        return self.session.exec(statement).first()
+
     def create(self, infra_requirement: InfraRequirement) -> InfraRequirement:
         """
         Persist a new infra requirement within the calling unit of work.

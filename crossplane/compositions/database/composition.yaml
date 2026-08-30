@@ -1,0 +1,222 @@
+# Makeway RelationalDatabase Composition — expands one RelationalDatabase XR
+# into an RDS PostgreSQL instance + its Security Group + subnet group.
+#
+# Crossplane v2 pipeline mode: the function-patch-and-transform function turns
+# the XR's parameters into the composed Managed Resources below.
+#
+# Wiring (following the platform RDS module, terraform/modules/rds/):
+#   - DBSubnetGroup     → the platform VPC's private subnets (placeholders below)
+#   - SecurityGroup     → in the platform VPC, one ingress rule on TCP 5432
+#   - SecurityGroupRule → source CIDR (EKS worker SG on managed EKS, dev IP on local)
+#   - DBInstance        → postgres, engineVersion param, port 5432, gp3, encrypted,
+#                         1-day backup, skipFinalSnapshot, NOT publicly accessible
+#
+# Password flow: the Step-2 Lambda generates the master password and writes a K8s
+# Secret `{xrName}-creds` in the XR's namespace before applying the XR. The
+# DBInstance references it via passwordSecretRef (patched from the XR's own
+# metadata.name/namespace — v2 XRs carry no claim labels); the RDS provider
+# mirrors it into the connection Secret. The Lambda later reads it back and
+# pushes it to AWS Secrets Manager (InfraRequirement.secretRef) — Secrets
+# Manager is NOT created by this Composition (see README).
+#
+# Naming: MR names derive from the XR's metadata.name (set deterministically by
+# the Lambda). Crossplane names each MR {xrName} in its own kind.
+#
+# Capacity → instance class: the XRD exposes 1..10; this map turns it into a
+# concrete class. This table is the platform team's single source of truth for
+# DB sizing — tune it here, no Lambda change.
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: relational-database.aws
+  labels:
+    provider: aws
+    managed-by: makeway
+spec:
+  compositeTypeRef:
+    apiVersion: makeway.io/v1beta1
+    kind: RelationalDatabase
+  mode: Pipeline
+  pipeline:
+    - step: patch-and-transform
+      functionRef:
+        name: function-patch-and-transform
+      input:
+        apiVersion: pt.fn.crossplane.io/v1beta1
+        kind: Resources
+        writeConnectionSecretToRef:
+          patches:
+            - type: FromCompositeFieldPath
+              fromFieldPath: spec.writeConnectionSecretToRef.name
+              toFieldPath: name
+        resources:
+    # ---- subnet group: platform VPC private subnets -------------------------
+          - name: subnetgroup
+            base:
+              apiVersion: rds.aws.m.upbound.io/v1beta1
+              kind: DBSubnetGroup
+              spec:
+                forProvider:
+                  region: ap-south-1
+                  # Platform VPC private subnet IDs — filled at bootstrap from
+                  # terraform network remote state (modules/vpc outputs).
+                  subnetIds:
+                    - __PLATFORM_PRIVATE_SUBNET_1__
+                    - __PLATFORM_PRIVATE_SUBNET_2__
+                  tags:
+                    managed-by: makeway
+                providerConfigRef:
+                  name: makeway
+            patches:
+              - type: FromCompositeFieldPath
+                fromFieldPath: spec.parameters.region
+                toFieldPath: spec.forProvider.region
+
+          # ---- security group: one per database (least privilege) ----------
+          - name: securitygroup
+            base:
+              apiVersion: ec2.aws.m.upbound.io/v1beta1
+              kind: SecurityGroup
+              spec:
+                forProvider:
+                  region: ap-south-1
+                  vpcId: __PLATFORM_VPC_ID__
+                  description: Makeway-managed RDS security group
+                  tags:
+                    managed-by: makeway
+                providerConfigRef:
+                  name: makeway
+            patches:
+              - type: FromCompositeFieldPath
+                fromFieldPath: spec.parameters.region
+                toFieldPath: spec.forProvider.region
+
+          # ---- ingress rule: who may reach the database on 5432 ------------
+          - name: ingress
+            base:
+              apiVersion: ec2.aws.m.upbound.io/v1beta1
+              kind: SecurityGroupRule
+              spec:
+                forProvider:
+                  region: ap-south-1
+                  type: ingress
+                  fromPort: 5432
+                  toPort: 5432
+                  protocol: tcp
+                  cidrBlocks:
+                    - __PLATFORM_VPC_CIDR__
+                  # Cross-resource reference: `securitygroup` is the composition
+                  # resource name above; the function resolves it to the SG's id.
+                  securityGroupIdRef:
+                    name: securitygroup
+                providerConfigRef:
+                  name: makeway
+            patches:
+              - type: FromCompositeFieldPath
+                fromFieldPath: spec.parameters.region
+                toFieldPath: spec.forProvider.region
+              - type: FromCompositeFieldPath
+                fromFieldPath: spec.parameters.ingressSourceCidr
+                toFieldPath: spec.forProvider.cidrBlocks[0]
+
+          # ---- the RDS instance itself -------------------------------------
+          - name: dbinstance
+            base:
+              apiVersion: rds.aws.m.upbound.io/v1beta1
+              kind: DBInstance
+              spec:
+                forProvider:
+                  region: ap-south-1
+                  engine: postgres
+                  engineVersion: "17"
+                  instanceClass: db.t4g.small
+                  allocatedStorage: 20
+                  storageType: gp3
+                  dbName: orders
+                  username: makeway_admin
+                  # Secret written by the Step-2 Lambda before applying the XR:
+                  # {xrName}-creds in the XR's namespace. Overwritten at runtime
+                  # by the FromCompositeFieldPath patches below.
+                  passwordSecretRef:
+                    name: __CLAIM_NAME__-creds
+                    namespace: __CLAIM_NAMESPACE__
+                    key: password
+                  # Cross-resource references to the two resources above.
+                  dbSubnetGroupNameRef:
+                    name: subnetgroup
+                  vpcSecurityGroupIdsRefs:
+                    - name: securitygroup
+                  publiclyAccessible: false
+                  skipFinalSnapshot: true
+                  backupRetentionPeriod: 1
+                  storageEncrypted: true
+                  port: 5432
+                  tags:
+                    managed-by: makeway
+                providerConfigRef:
+                  name: makeway
+            patches:
+              - type: FromCompositeFieldPath
+                fromFieldPath: spec.parameters.region
+                toFieldPath: spec.forProvider.region
+              - type: FromCompositeFieldPath
+                fromFieldPath: spec.parameters.engineVersion
+                toFieldPath: spec.forProvider.engineVersion
+              - type: FromCompositeFieldPath
+                fromFieldPath: spec.parameters.databaseName
+                toFieldPath: spec.forProvider.dbName
+              - type: FromCompositeFieldPath
+                fromFieldPath: spec.parameters.masterUsername
+                toFieldPath: spec.forProvider.username
+              - type: FromCompositeFieldPath
+                fromFieldPath: spec.parameters.publiclyAccessible
+                toFieldPath: spec.forProvider.publiclyAccessible
+              # capacity (1..10) → instance class. The XRD default (5) guarantees
+              # the field exists; the map transform looks the integer up as a
+              # string key.
+              - type: FromCompositeFieldPath
+                fromFieldPath: spec.parameters.capacity
+                toFieldPath: spec.forProvider.instanceClass
+                transforms:
+                  - type: map
+                    map:
+                      "1": db.t4g.micro
+                      "2": db.t4g.micro
+                      "3": db.t4g.small
+                      "4": db.t4g.small
+                      "5": db.t4g.small
+                      "6": db.t4g.medium
+                      "7": db.t4g.medium
+                      "8": db.t4g.large
+                      "9": db.t4g.large
+                      "10": db.t4g.xlarge
+              # the password Secret lives next to the pod: {xrName}-creds in the
+              # XR's namespace. v2 XRs carry no claim labels, so read the XR's
+              # own metadata.name / metadata.namespace to locate the Secret.
+              - type: FromCompositeFieldPath
+                fromFieldPath: metadata.name
+                toFieldPath: spec.forProvider.passwordSecretRef.name
+                transforms:
+                  - type: string
+                    string:
+                      fmt: "%s-creds"
+              - type: FromCompositeFieldPath
+                fromFieldPath: metadata.namespace
+                toFieldPath: spec.forProvider.passwordSecretRef.namespace
+            connectionDetails:
+              - type: FromFieldPath
+                name: endpoint
+                fromFieldPath: status.atProvider.address
+              - type: FromFieldPath
+                name: port
+                fromFieldPath: status.atProvider.port
+              - type: FromFieldPath
+                name: databaseName
+                fromFieldPath: spec.forProvider.dbName
+              - type: FromFieldPath
+                name: username
+                fromFieldPath: spec.forProvider.username
+              # The RDS provider mirrors the passwordSecretRef value into the
+              # MR's connection secret — pass it through verbatim.
+              - type: FromConnectionSecretKey
+                name: password

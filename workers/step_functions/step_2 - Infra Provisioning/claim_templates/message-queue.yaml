@@ -1,0 +1,32 @@
+# XR template — MessageQueue (makeway.io/v1beta1)
+# Rendered by the Step-2 worker for every entry in a messaging capability's
+# `queue` list and applied into {appName}-{env}. Crossplane expands it via the
+# message-queue.aws Composition into one SQS queue + its derived {name}-dlq
+# dead-letter queue.
+#
+# dlqArn is computed by the worker ({region}:{account}:{queueName}-dlq) so the
+# Composition's redrive policy can reference the derived DLQ without a
+# cross-resource patch.
+apiVersion: makeway.io/v1beta1
+kind: MessageQueue
+metadata:
+  name: __CLAIM_NAME__
+  namespace: __NAMESPACE__
+  labels:
+    managed-by: makeway
+    app: __APP_NAME__
+    environment: __ENV__
+    capability-id: "__CAPABILITY_ID__"
+spec:
+  # v2 XR control-plane machinery: which Composition expands this instance.
+  crossplane:
+    compositionRef:
+      name: message-queue.aws
+  writeConnectionSecretToRef:
+    name: __CONN_SECRET__
+  parameters:
+    queueName: __QUEUE_NAME__
+    region: __REGION__
+    dlqEnabled: true
+    maxReceiveCount: 3
+    dlqArn: __DLQ_ARN__

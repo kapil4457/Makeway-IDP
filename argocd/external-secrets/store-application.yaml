@@ -1,0 +1,33 @@
+# ArgoCD Application for the cluster-scoped ESO bootstrap (the `makeway`
+# ClusterSecretStore). Kustomize root = this folder; the credential Secret is
+# deliberately excluded so ArgoCD never re-renders live keys.
+#
+#   kubectl apply -n argocd -f argocd/external-secrets/store-application.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: makeway-external-secrets-store
+  namespace: argocd
+  labels:
+    managed-by: makeway
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/kapil4457/Makeway-IDP
+    targetRevision: main
+    path: argocd/external-secrets
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: external-secrets
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m

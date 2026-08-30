@@ -42,3 +42,10 @@ class TeamMemberRepository:
         if team:
             return team.teamId
         return None
+
+    def get_team_by_id(self, team_id: int) -> Team | None:
+        """
+        Get a team by its primary key.
+        """
+        statement = select(Team).where(Team.teamId == team_id)
+        return self.session.exec(statement).first()

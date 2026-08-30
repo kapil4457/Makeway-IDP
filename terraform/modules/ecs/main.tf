@@ -225,6 +225,11 @@ resource "aws_ecs_service" "this" {
   cluster         = aws_ecs_cluster.this.id
   task_definition = aws_ecs_task_definition.this.arn
   desired_count   = var.desired_count
+  # Terraform destroy must not wait for a graceful task drain: without this,
+  # DeleteService on a service with RUNNING tasks errors and the provider
+  # retries until its delete timeout. The ALB deregistration delay (30s) still
+  # handles in-flight requests.
+  force_delete = true
 
   capacity_provider_strategy {
     capacity_provider = aws_ecs_capacity_provider.this.name

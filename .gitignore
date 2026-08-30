@@ -79,3 +79,12 @@ CLAUDE.md
 temp/*
 
 env_setup.bash
+
+*.ini
+*.lock.hcl
+*.svg
+*.png
+*.jpeg
+*.jpg
+tfplan
+tfdestroy.plan

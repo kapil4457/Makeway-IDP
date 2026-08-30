@@ -8,11 +8,13 @@ creation request this step:
    control plane.
 3. Creates the app's **services monorepo** (<appName>, public, branch ``main``)
    and scaffolds one golden-path folder per service (deduplicated by base name
-   — the ``-<env>`` suffix is stripped so ``orders-api-dev`` and
-   ``orders-api-qa`` share one ``orders-api`` folder).
+   — the ``-<env>`` suffix is stripped so ``orders-api-qa`` and
+   ``orders-api-uat`` share one ``orders-api`` folder).
 4. Writes a per-service CI workflow (``.github/workflows/ci-<service>.yaml``)
-   that runs on merge to main, builds the service image, and bumps the service's
-   image tag in the env overlays under ``argocd/apps/<appName>/``.
+   that runs on merge to the branch that promotes each tier
+   (``feature/*`` → qa, ``release/*`` → uat, ``main`` → prod), builds the
+   service image, and bumps that environment's image tag in the env overlays
+   under ``argocd/apps/<appName>/``.
 5. Publishes the app's **GitOps configuration into the Makeway platform repo
    itself** (no separate per-app gitops repo): ``argocd/apps/<appName>/`` with
    the base/apps/envs kustomize layout. Because the platform repo's ``main`` is
@@ -75,6 +77,18 @@ STACK_PORT = {
 # first CI run; the env overlay always patches this value, and when the user
 # sets the DOCKERHUB_IMAGE repository variable, CI rewrites the real tag.
 PLACEHOLDER_IMAGE = "makeway-placeholder/__SERVICE_NAME__:pending-first-build"
+
+# Environment tiers and the branch that promotes each one's image. A service's
+# CI workflow maps the merged branch to its environment and bumps that env's
+# image tag in the gitops (`argocd/apps/<appName>/envs/<env>/<service>-patch.yaml`):
+#   feature/* -> qa, release/* -> uat, main -> prod.
+# This is the canonical env set for every app — there is no dev environment.
+ENV_BRANCH_MAP = {
+    "feature": "qa",
+    "release": "uat",
+    "main": "prod",
+}
+GITOPS_ENVIRONMENTS = list(ENV_BRANCH_MAP.values())  # ["qa", "uat", "prod"]
 
 # Commit author/committer is resolved at runtime from the PAT's own user
 # (`GET /user`) so that "who authors the commit" and "who authenticates the
@@ -215,6 +229,7 @@ def _collect_template_files(template_dir: str) -> dict[str, str]:
 
 def _ensure_repo(repo: str):
     """Create ``repo`` under GITHUB_OWNER if it doesn't exist. Idempotent."""
+    # Example : https://api.github.com/repos/kapil4457/makeway-idp
     status, body = _gh_status("GET", f"/repos/{GITHUB_OWNER}/{repo}")
     if status == 200:
         logger.info("repo %s already exists — reusing", repo)
@@ -330,8 +345,13 @@ def _ensure_branch(repo: str, branch: str) -> None:
 # --------------------------------------------------------------------------- #
 
 def _strip_env(svc_name: str, environments: list[str]) -> str:
-    """``orders-api-dev`` -> ``orders-api`` (longest env suffix wins)."""
-    for env in sorted(environments, key=len, reverse=True):
+    """``orders-api-qa`` -> ``orders-api`` (longest env suffix wins).
+
+    Strips both the control-plane environments and the canonical gitops envs,
+    so legacy ``orders-api-dev`` rows still deduplicate to ``orders-api``.
+    """
+    candidates = sorted(set(environments) | set(GITOPS_ENVIRONMENTS), key=len, reverse=True)
+    for env in candidates:
         suffix = f"-{env}"
         if svc_name.endswith(suffix):
             return svc_name[: -len(suffix)]
@@ -404,41 +424,33 @@ def _push_services_repo(services_repo: str, app_name: str, base_services: dict, 
 
 def _argocd_app_files(
     app_name: str,
-    environments: list[str],
     base_services: dict,
 ) -> dict[str, str]:
-    """Build the argocd/apps/<appName>/ tree (base/apps/envs layout)."""
+    """Build the argocd/apps/<appName>/ tree (base/apps/envs layout).
+
+    Envs come from the canonical ``GITOPS_ENVIRONMENTS`` (qa/uat/prod), not
+    the control-plane cluster list — every app gets one overlay per tier, and
+    each is maintained by a specific branch in the service's CI.
+    """
     prefix = f"argocd/apps/{app_name}/"
     templates = _collect_template_files(GITOPS_TEMPLATES_DIR)
     files = {}
 
     files[prefix + "README.md"] = _render(templates["README.md"], APP_NAME=app_name)
 
-    # base/namespaces.yaml — one Namespace per environment, applied through each
-    # env overlay (kustomize imports raw files as resources).
-    ns_items = []
-    for env in environments:
-        ns_items.append(
-            f"- apiVersion: v1\n"
-            f"  kind: Namespace\n"
-            f"  metadata:\n"
-            f"    name: {app_name}-{env}\n"
-            f"    labels:\n"
-            f"      app: {app_name}\n"
-            f"      environment: {env}\n"
-            f"      managed-by: makeway\n"
-        )
-    files[prefix + "base/namespaces.yaml"] = (
-        f"# Namespaces for the {app_name} app — one per environment.\n"
-        f"# Managed by Makeway; imported by every {app_name} env overlay.\n"
-        f"apiVersion: v1\n"
-        f"kind: List\n"
-        f"items:\n" + "\n".join(ns_items)
-    )
+    # base/ holds what every env overlay shares (the netpols) but NOT the
+    # namespaces: each overlay creates exactly its own {app}-{env} Namespace via
+    # envs/<env>/namespace.yaml, so the qa Application never manages uat/prod.
     # base/kustomization.yaml — makes base/ a kustomize root so env overlays can
     # reference it via "../../base".
     files[prefix + "base/kustomization.yaml"] = _render(
         templates["base/kustomization.yaml"], APP_NAME=app_name
+    )
+    # base/network-policies.yaml — default-deny ingress + allow same-namespace,
+    # shipped into every env overlay so each {app}-{env} namespace isolates
+    # itself from other apps' namespaces.
+    files[prefix + "base/network-policies.yaml"] = _render(
+        templates["base/network-policies.yaml"], APP_NAME=app_name
     )
 
     # apps/<base>/ — golden-path Deployment + Service + kustomization, shared
@@ -464,11 +476,16 @@ def _argocd_app_files(
             SERVICE_NAME=base,
         )
 
-    # envs/<env>/ — overlay: import the app's namespaces + every service base,
-    # bind the <app>-<env> namespace, and patch each service's image tag.
-    for env in environments:
+    # envs/<env>/ — overlay: this env's own Namespace + the app's shared
+    # base (netpols) + every service base, then patch each service's image tag.
+    for env in GITOPS_ENVIRONMENTS:
+        files[prefix + f"envs/{env}/namespace.yaml"] = _render(
+            templates["envs/namespace.yaml"],
+            APP_NAME=app_name,
+            ENV=env,
+        )
         resources = "\n".join(
-            ["  - ../../base"]
+            ["  - namespace.yaml", "  - ../../base"]
             + [f"  - ../../apps/{base}" for base in base_services]
         )
         patches = "\n".join(f"  - path: {base}-patch.yaml" for base in base_services)
@@ -510,9 +527,10 @@ def _create_pr(repo: str, branch: str, app_name: str) -> dict:
             "body": (
                 "Generated by the Makeway app-creation flow.\n\n"
                 f"Adds the ArgoCD configuration for **{app_name}** under "
-                "`argocd/apps/` (base/apps/envs layout). Env overlays contain "
-                "the image patches that each service's CI workflow updates on "
-                "merge to main."
+                "`argocd/apps/` (base/apps/envs layout). Env overlays (qa/uat/prod) "
+                "contain the image patches that each service's CI workflow updates "
+                "on merge to its branch (`feature/*` → qa, `release/*` → uat, "
+                "`main` → prod)."
             ),
         },
     )
@@ -583,7 +601,7 @@ def _report(
     execution_arn: str | None = None,
     error: str | None = None,
     app_repo_url: str | None = None,
-    gitops_repo_url: str | None = None,
+    gitops_path: str | None = None,
     service_repo_paths: list[dict] | None = None,
 ) -> None:
     payload = {
@@ -597,8 +615,8 @@ def _report(
         payload["error"] = error
     if app_repo_url:
         payload["appRepoUrl"] = app_repo_url
-    if gitops_repo_url:
-        payload["gitOpsRepoUrl"] = gitops_repo_url
+    if gitops_path:
+        payload["gitOpsPath"] = gitops_path
     if service_repo_paths:
         payload["serviceRepoPaths"] = service_repo_paths
     _control_plane("POST", f"/internal/requests/{request_id}/status", payload)
@@ -635,7 +653,6 @@ def handler(event, context):
         services = details["services"]
         environments = details.get("environments") or []
 
-        # Deduplicate service rows by base name across environments.
         base_services: dict[str, dict] = {}
         for svc in services:
             base = _strip_env(svc["svcName"], environments)
@@ -650,7 +667,8 @@ def handler(event, context):
         _push_services_repo(services_repo, app_name, base_services, PLATFORM_REPO)
 
         # 2. GitOps: argocd/apps/<appName>/ inside the Makeway platform repo.
-        gitops_files = _argocd_app_files(app_name, environments, base_services)
+        #    Envs are the canonical qa/uat/prod tiers (no dev).
+        gitops_files = _argocd_app_files(app_name, base_services)
         publish = _publish_gitops_to_platform(
             app_name,
             gitops_files,
@@ -659,6 +677,7 @@ def handler(event, context):
 
         app_repo_url = f"https://github.com/{GITHUB_OWNER}/{services_repo}"
         gitops_repo_url = f"https://github.com/{PLATFORM_REPO}"
+        gitops_path = f"argocd/apps/{app_name}/"
         service_repo_paths = [
             {"svcId": svc["svcId"], "repoPath": _strip_env(svc["svcName"], environments)}
             for svc in services
@@ -670,7 +689,7 @@ def handler(event, context):
             "success",
             execution_arn,
             app_repo_url=app_repo_url,
-            gitops_repo_url=gitops_repo_url,
+            gitops_path=gitops_path,
             service_repo_paths=service_repo_paths,
         )
 
@@ -688,6 +707,7 @@ def handler(event, context):
             "job_id": job_id,
             "app_repo_url": app_repo_url,
             "gitops_repo_url": gitops_repo_url,
+            "gitops_path": gitops_path,
             "gitops_pr_url": publish.get("pr_url"),
         }
 

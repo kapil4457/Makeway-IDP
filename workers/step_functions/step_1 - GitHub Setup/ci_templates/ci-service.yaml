@@ -1,15 +1,21 @@
 # CI for the __SERVICE_NAME__ service — rendered by the Makeway Step-1 worker
 # and placed at <services-repo>/.github/workflows/ci-__SERVICE_NAME__.yaml.
 #
-# Runs on merge to main and only when the service's folder changed. Builds and
-# pushes the service image, then bumps the image tag inside the Makeway gitops
-# folder (argocd/apps/__APP_NAME__/envs/<env>/__SERVICE_NAME__-patch.yaml) so
-# ArgoCD rolls out the new version.
+# Runs on push to the branch that promotes this service's tier, and only when
+# the service's folder changed:
+#   - merge to main         -> prod image (argocd/apps/__APP_NAME__/envs/prod/...)
+#   - merge to release/*    -> uat image
+#   - merge to feature/*    -> qa image
+# The image tag is then bumped inside the Makeway gitops folder for THAT
+# environment only, so ArgoCD rolls out just the promoted tier.
 name: ci-__SERVICE_NAME__
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main
+      - release/**
+      - feature/**
     paths:
       - '__SERVICE_NAME__/**'
 
@@ -32,6 +38,22 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
+      # branch -> environment that receives this build.
+      #   main       -> prod
+      #   release/*  -> uat
+      #   feature/*  -> qa
+      - name: Resolve target environment
+        id: env
+        run: |
+          case "${GITHUB_REF_NAME}" in
+            main)          ENV="prod" ;;
+            release/*)     ENV="uat" ;;
+            feature/*)     ENV="qa" ;;
+            *)             echo "No deployment environment for branch ${GITHUB_REF_NAME}."; exit 1 ;;
+          esac
+          echo "TARGET_ENV=${ENV}" >> "${GITHUB_OUTPUT}"
+          echo "Building ${ENV} image for __SERVICE_NAME__."
+
       - name: Build and push
         uses: docker/build-push-action@v6
         with:
@@ -41,10 +63,10 @@ jobs:
             ${{ vars.DOCKERHUB_IMAGE }}:__SERVICE_NAME__-latest
             ${{ vars.DOCKERHUB_IMAGE }}:__SERVICE_NAME__-${{ github.sha }}
 
-      # GitOps loop: after pushing the image, rewrite the image line in every
-      # environment's patch file for this service inside the Makeway platform
-      # repo. The makeway-apps ApplicationSet syncs those env overlays, so
-      # ArgoCD rolls out the change automatically.
+      # GitOps loop: after pushing, rewrite the image line in this service's
+      # patch file for the resolved environment ONLY
+      # (argocd/apps/<app>/envs/<env>/<service>-patch.yaml). Other tiers keep
+      # their current image; each env is promoted by its own branch.
       - name: Update image tag in Makeway gitops
         if: ${{ vars.DOCKERHUB_IMAGE != '' && secrets.GITOPS_PAT != '' }}
         env:
@@ -53,6 +75,7 @@ jobs:
           APP_NAME: __APP_NAME__
           SERVICE_NAME: __SERVICE_NAME__
           DOCKERHUB_IMAGE: ${{ vars.DOCKERHUB_IMAGE }}
+          TARGET_ENV: ${{ steps.env.outputs.TARGET_ENV }}
         run: |
           set -euo pipefail
           TMP_DIR="$(mktemp -d)"
@@ -62,23 +85,17 @@ jobs:
           git config user.email "makeway-cicd@users.noreply.github.com"
 
           IMAGE="${DOCKERHUB_IMAGE}:${SERVICE_NAME}-${GITHUB_SHA}"
-          PATCHES_DIR="argocd/apps/${APP_NAME}/envs"
-          UPDATED=0
-          for env_dir in "${PATCHES_DIR}"/*/; do
-            test -d "${env_dir}" || continue
-            patch_file="${env_dir}${SERVICE_NAME}-patch.yaml"
-            test -f "${patch_file}" || continue
-            sed -i "s|^\( *image: \).*|\1${IMAGE}|" "${patch_file}"
-            UPDATED=1
-          done
-
-          if [ "${UPDATED}" -eq 0 ]; then
-            echo "No env patch found for ${SERVICE_NAME} under ${PATCHES_DIR} — nothing to update."
+          PATCH_DIR="argocd/apps/${APP_NAME}/envs/${TARGET_ENV}"
+          patch_file="${PATCH_DIR}/${SERVICE_NAME}-patch.yaml"
+          if [ ! -f "${patch_file}" ]; then
+            echo "No ${TARGET_ENV} patch found for ${SERVICE_NAME} at ${patch_file} — nothing to update."
             exit 0
           fi
 
+          sed -i "s|^\( *image: \).*|\1${IMAGE}|" "${patch_file}"
+
           git add -A
           git diff --cached --quiet || {
-            git commit -m "ci: bump ${SERVICE_NAME} image to ${GITHUB_SHA} [skip ci]"
+            git commit -m "ci: bump ${SERVICE_NAME} image to ${GITHUB_SHA} (${TARGET_ENV}) [skip ci]"
             git push
           }

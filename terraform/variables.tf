@@ -165,6 +165,48 @@ variable "makeway_platform_repo" {
   default     = "Makeway-IDP"
 }
 
+# --- App-creation workflow (Step 2 — Crossplane infra provisioning) ---
+#
+# Step 2 reaches the developer's local cluster (ArgoCD + Crossplane) through the
+# exposed kube-apiserver. The Crossplane ProviderConfig on that cluster and the
+# Step-2 Lambda must target the same AWS account.
+
+variable "kube_api_endpoint" {
+  description = "Base URL of the (exposed) cluster kube-apiserver the Step-2 Lambda reaches, e.g. https://k8s.makeway.dev (pinggy/ngrok/ingress in front of the local cluster)."
+  type        = string
+}
+
+variable "kube_ca_cert" {
+  description = "Base64 CA bundle of the exposed cluster (KUBE_CA_CERT). Empty disables TLS verification — only for a local dev cluster behind a tunnel."
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
+variable "kube_token" {
+  description = "Bearer token for a 'makeway-worker' ServiceAccount on the cluster, scoped to create Claims / read Secrets in app namespaces."
+  type        = string
+  sensitive   = true
+}
+
+variable "step2_max_attempts" {
+  description = "Budget of Step-2 Claim checks before the flow times out (attempts * wait_seconds ≈ total infra budget; default 30x30s ≈ 15 min for RDS)."
+  type        = number
+  default     = 30
+}
+
+# --- ArgoCD health reporter ---
+#
+# Scheduled Lambda that mirrors live ArgoCD Applications into DeploymentSetup
+# rows on the control plane (feeds GET /app/{app}/status). Uses the same
+# KUBE_* access as Step 2.
+
+variable "health_reporter_schedule" {
+  description = "EventBridge rate/cron expression for the ArgoCD health sweep, e.g. 'rate(5 minutes)'."
+  type        = string
+  default     = "rate(5 minutes)"
+}
+
 # --- Bastion / SSM Session Manager ---
 
 variable "bastion_ssh_public_key_path" {

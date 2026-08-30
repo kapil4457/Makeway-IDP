@@ -1,0 +1,9 @@
+# makeway-worker-token.yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: makeway-worker-token
+  namespace: crossplane-system
+  annotations:
+    kubernetes.io/service-account.name: makeway-worker
+type: kubernetes.io/service-account-token

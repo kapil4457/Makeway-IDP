@@ -21,7 +21,7 @@ class ServiceRepository:
 
         A service name is globally unique because it is derived from the
         service name plus the environment. See how `svcName` is set during
-        app creation (e.g. ``orders-api-dev``).
+        app creation (e.g. ``orders-api-qa``).
         """
         statement = select(Service).where(
             Service.svcName == svc_name

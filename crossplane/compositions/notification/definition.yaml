@@ -1,0 +1,62 @@
+# XRD: Makeway NotificationTopic capability — the platform team's contract for
+# "give me an SNS topic" that the Step-2 Lambda renders XR instances against.
+#   makeway.io / v1beta1 / NotificationTopic
+#
+# One XR instance in a namespace grants one SNS topic. It backs the
+# MessagingConfig.notification flag (dto/configs/messaging_config.py): when the
+# capability turns notifications on, the Lambda creates one NotificationTopic
+# instance. The topic ARN lands back in the instance's namespace for the Step-2
+# Lambda to pick up and report via InfraRequirement.outputRef.
+apiVersion: apiextensions.crossplane.io/v2
+kind: CompositeResourceDefinition
+metadata:
+  name: notificationtopics.makeway.io
+  labels:
+    managed-by: makeway
+spec:
+  scope: Namespaced
+  group: makeway.io
+  names:
+    kind: NotificationTopic
+    plural: notificationtopics
+    singular: notificationtopic
+    listKind: NotificationTopicList
+  versions:
+    - name: v1beta1
+      served: true
+      referenceable: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          required:
+            - spec
+          properties:
+            spec:
+              type: object
+              required:
+                - parameters
+              properties:
+                # Where the function aggregates the composed connection details
+                # (named by the Step-2 Lambda, defaults to {xrName}-connection).
+                writeConnectionSecretToRef:
+                  type: object
+                  properties:
+                    name:
+                      type: string
+                      minLength: 1
+                      maxLength: 253
+                parameters:
+                  type: object
+                  required:
+                    - topicName
+                  properties:
+                    topicName:
+                      type: string
+                      minLength: 1
+                      maxLength: 256
+                      pattern: ^[a-zA-Z0-9_-]+$
+                      description: "SNS topic name (derived from the app by the Lambda, e.g. {appName}-{env}-notifications)."
+                    region:
+                      type: string
+                      default: ap-south-1
+                      description: "AWS region where the topic is created."

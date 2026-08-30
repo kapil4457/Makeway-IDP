@@ -1,0 +1,59 @@
+# Makeway NotificationTopic Composition — expands one NotificationTopic XR into
+# a single SNS topic. No VPC dependencies, no cross-resource references — the
+# simplest composition in the catalog.
+#
+# Crossplane v2 pipeline mode: the function-patch-and-transform function turns
+# the XR's parameters into the composed Managed Resource below.
+#
+# Connection details aggregated by the function for the Step-2 Lambda: the
+# topic ARN (+ name).
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: notification-topic.aws
+  labels:
+    provider: aws
+    managed-by: makeway
+spec:
+  compositeTypeRef:
+    apiVersion: makeway.io/v1beta1
+    kind: NotificationTopic
+  mode: Pipeline
+  pipeline:
+    - step: patch-and-transform
+      functionRef:
+        name: function-patch-and-transform
+      input:
+        apiVersion: pt.fn.crossplane.io/v1beta1
+        kind: Resources
+        writeConnectionSecretToRef:
+          patches:
+            - type: FromCompositeFieldPath
+              fromFieldPath: spec.writeConnectionSecretToRef.name
+              toFieldPath: name
+        resources:
+          - name: topic
+            base:
+              apiVersion: sns.aws.m.upbound.io/v1beta1
+              kind: Topic
+              spec:
+                forProvider:
+                  region: ap-south-1
+                  tags:
+                    managed-by: makeway
+                providerConfigRef:
+                  name: makeway
+            patches:
+              - type: FromCompositeFieldPath
+                fromFieldPath: spec.parameters.region
+                toFieldPath: spec.forProvider.region
+              - type: FromCompositeFieldPath
+                fromFieldPath: spec.parameters.topicName
+                toFieldPath: spec.forProvider.name
+            connectionDetails:
+              - type: FromFieldPath
+                name: topicArn
+                fromFieldPath: status.atProvider.arn
+              - type: FromFieldPath
+                name: topicName
+                fromFieldPath: spec.forProvider.name

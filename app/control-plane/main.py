@@ -21,9 +21,8 @@ API_DESCRIPTION = """
 Makeway is an AI-Assisted Internal Developer Platform (IDP).
 
 Use this API to onboard applications onto the platform: declare the desired
-state (services, databases, storage, observability, messaging) and
-Makeway reconciles it into real infrastructure through Terraform, GitOps,
-and Vault.
+state (services, databases, storage, messaging) and Makeway reconciles it
+into real infrastructure through Terraform, GitOps, and Vault.
 
 ### Conventions
 

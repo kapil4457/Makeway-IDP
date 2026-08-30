@@ -27,5 +27,5 @@ class ClusterRegisterRequest(BaseModel):
             "environments — app creation resolves clusters by this value, so "
             "free-form names would never match."
         ),
-        examples=["dev", "qa", "uat", "prod"],
+        examples=["qa", "uat", "prod"],
     )

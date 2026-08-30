@@ -1,0 +1,65 @@
+# XRD: Makeway ObjectStorage capability — the platform team's contract for
+# "give me an S3 bucket" that the Step-2 Lambda renders XR instances against.
+#   makeway.io / v1beta1 / ObjectStorage
+#
+# One XR instance in a namespace grants one S3 bucket (+ optional CloudFront
+# CDN). The instance is applied in {appName}-{env}; Crossplane expands it into
+# the Managed Resources in the Composition and the function aggregates the
+# connection Secret back into the same namespace.
+apiVersion: apiextensions.crossplane.io/v2
+kind: CompositeResourceDefinition
+metadata:
+  name: objectstorages.makeway.io
+  labels:
+    managed-by: makeway
+spec:
+  scope: Namespaced
+  group: makeway.io
+  names:
+    kind: ObjectStorage
+    plural: objectstorages
+    singular: objectstorage
+    listKind: ObjectStorageList
+  versions:
+    - name: v1beta1
+      served: true
+      referenceable: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          required:
+            - spec
+          properties:
+            spec:
+              type: object
+              required:
+                - parameters
+              properties:
+                # Where the function aggregates the composed connection details
+                # (named by the Step-2 Lambda, defaults to {xrName}-connection).
+                writeConnectionSecretToRef:
+                  type: object
+                  properties:
+                    name:
+                      type: string
+                      minLength: 1
+                      maxLength: 253
+                parameters:
+                  type: object
+                  required:
+                    - bucketName
+                    - region
+                  properties:
+                    bucketName:
+                      type: string
+                      minLength: 3
+                      maxLength: 63
+                      pattern: ^[a-z0-9][a-z0-9.-]*[a-z0-9]$
+                      description: "S3 bucket name (globally unique): the app's bucket, e.g. order-service-qa-storage."
+                    region:
+                      type: string
+                      description: "AWS region where the bucket is created."
+                    cloudfront:
+                      type: boolean
+                      default: false
+                      description: "When true, create a CloudFront distribution in front of the bucket."

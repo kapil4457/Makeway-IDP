@@ -1,0 +1,30 @@
+# XR template — RelationalDatabase (makeway.io/v1beta1)
+# Rendered by the Step-2 worker (__TOKEN__ substitution, like Step-1's templates)
+# and applied into {appName}-{env}. Crossplane expands it via the
+# relational-database.aws Composition into RDS + SG + subnet group, and the
+# function writes the connection Secret ({xrName}-connection) back into the
+# XR's namespace for the worker's extract phase to read.
+apiVersion: makeway.io/v1beta1
+kind: RelationalDatabase
+metadata:
+  name: __CLAIM_NAME__
+  namespace: __NAMESPACE__
+  labels:
+    managed-by: makeway
+    app: __APP_NAME__
+    environment: __ENV__
+    capability-id: "__CAPABILITY_ID__"
+spec:
+  # v2 XR control-plane machinery: which Composition expands this instance.
+  crossplane:
+    compositionRef:
+      name: relational-database.aws
+  writeConnectionSecretToRef:
+    name: __CONN_SECRET__
+  parameters:
+    databaseName: __DB_NAME__
+    masterUsername: __MASTER_USERNAME__
+    capacity: __CAPACITY__
+    region: __REGION__
+    publiclyAccessible: __PUBLICLY_ACCESSIBLE__
+    ingressSourceCidr: __INGRESS_CIDR__

@@ -1,0 +1,24 @@
+# XR template — NotificationTopic (makeway.io/v1beta1)
+# Rendered by the Step-2 worker when a messaging capability sets
+# `notification: true` and applied into {appName}-{env}. Crossplane expands it
+# via the notification-topic.aws Composition into one SNS topic.
+apiVersion: makeway.io/v1beta1
+kind: NotificationTopic
+metadata:
+  name: __CLAIM_NAME__
+  namespace: __NAMESPACE__
+  labels:
+    managed-by: makeway
+    app: __APP_NAME__
+    environment: __ENV__
+    capability-id: "__CAPABILITY_ID__"
+spec:
+  # v2 XR control-plane machinery: which Composition expands this instance.
+  crossplane:
+    compositionRef:
+      name: notification-topic.aws
+  writeConnectionSecretToRef:
+    name: __CONN_SECRET__
+  parameters:
+    topicName: __TOPIC_NAME__
+    region: __REGION__

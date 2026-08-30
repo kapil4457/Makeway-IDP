@@ -26,8 +26,17 @@ Each entry: account name, what it's for, the exact ARN(s) it may touch, and the 
 
 | Account | Purpose | Resource scope | Actions | Credentials in |
 |---|---|---|---|---|
-| `makeway-sa` | Control plane → SQS publish/consume (app-creation messages) | `arn:aws:sqs:<region>:<account-id>:makeway-requests` | `sqs:SendMessage`, `sqs:SendMessageBatch`, `sqs:GetQueueUrl`, `sqs:ReceiveMessage`, `sqs:DeleteMessage`, `sqs:ChangeMessageVisibility` | `app/control-plane/.env` |
-| *(add more as capabilities are built)* | | | | |
+| `makeway-sa` | Control plane → SQS publish/consume (app-creation messages) | `arn:aws:sqs:<region>:<account-id>:makeway-requests` (+ DLQ) | `sqs:SendMessage`, `sqs:SendMessageBatch`, `sqs:GetQueueUrl`, `sqs:ReceiveMessage`, `sqs:DeleteMessage`, `sqs:ChangeMessageVisibility` | `app/control-plane/.env` |
+| `makeway-crossplane` | Crossplane AWS provider on the cluster (compositions provision claims' resources) | Scoped RDS/S3/SQS/SNS build access + SecretsManager, exact ARNs per capability | RDS create/modify, S3 bucket + object, SQS queue, SNS topic | `crossplane/secrets/provider-creds.yaml` (bootstrap-only, gitignored content) |
+| `makeway-{app}-{env}-{slug}` | **Per-claim** IAM users created by the Step-2 worker so pods on the local cluster (no IRSA) can call the AWS API — one user per S3/SQS/SNS claim | Exactly the resources that claim backs onto (bucket ARNs, queue+DLQ ARNs, topic ARN) | `s3:ListBucket/GetBucketLocation/GetObject/PutObject/DeleteObject`, `sqs:Send/Receive/Delete/ChangeMessageVisibility/GetQueueUrl/GetQueueAttributes`, `sns:Publish` | Step-2 `_ensure_aws_identity` — created automatically, keys mirrored into Secrets Manager |
+| *(ESO store keys)* | ClusterSecretStore `makeway` → AWS Secrets Manager reads | `secretsmanager:GetSecretValue` on `makeway/*` prefix | `secretsmanager:GetSecretValue` | `external-secrets/aws-credentials` secret (bootstrap-only, gitignored content) |
+| `github-actions-terraform` | GitHub Actions OIDC role (plan/apply/destroy of the platform root) | AssumeRole-like trust via GitHub OIDC; permissions come from attached policies | platform Terraform CRUD | Fed via OIDC (`AWS_ROLE_ARN` secret) — no static keys |
+| *(GitHub PAT)* | All worker git/API calls (Step-1, Step-2, gitops commits) | GitHub REST + git-database API | `repo`, `workflow`, `read:user` | Secrets Manager `makeway/github-pat` (read at runtime, never baked into artifacts) |
+
+> Rather than proliferate static pipelines, the platform steadily migrates
+> machine identities to **IRSA / pod identity** once it lands on managed EKS:
+> the Crossplane ProviderConfig, the ESO ClusterSecretStore, and the
+> per-claim IAM users all collapse into role-differentiated service accounts.
 
 ## Registering credentials per environment
 

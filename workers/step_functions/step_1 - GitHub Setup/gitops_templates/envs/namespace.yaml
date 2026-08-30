@@ -1,0 +1,11 @@
+# The __APP_NAME__-__ENV__ Namespace — created by this overlay and no other.
+# Each env overlay owns exactly one Namespace ({app}-{env}), so the qa
+# Application never creates or manages uat/prod (and vice versa).
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: __APP_NAME__-__ENV__
+  labels:
+    app: __APP_NAME__
+    environment: __ENV__
+    managed-by: makeway

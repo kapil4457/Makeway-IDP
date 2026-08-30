@@ -6,7 +6,6 @@ They define per-environment limits for pods, database capacity, resource quotas,
 and limit ranges.
 
 Environments:
-  - dev:  Maximum 1 pod per service, max database capacity tier 10
   - qa:   Maximum 1 pod per service, max database capacity tier 10
   - uat:  Maximum 3 pods per service, max database capacity tier 20
   - prod: Maximum 5 pods per service, max database capacity tier 40
@@ -16,10 +15,6 @@ from dto.enums.environment import Environment
 
 # Per-environment constraint definitions
 ENV_CONSTRAINTS = {
-    Environment.DEV: {
-        "max_pods_per_service": 1,
-        "max_database_capacity": 10,
-    },
     Environment.QA: {
         "max_pods_per_service": 1,
         "max_database_capacity": 10,
@@ -37,4 +32,4 @@ ENV_CONSTRAINTS = {
 
 def get_constraints(env: Environment) -> dict:
     """Get the constraint configuration for a given environment."""
-    return ENV_CONSTRAINTS.get(env, ENV_CONSTRAINTS[Environment.DEV])
+    return ENV_CONSTRAINTS.get(env, ENV_CONSTRAINTS[Environment.QA])

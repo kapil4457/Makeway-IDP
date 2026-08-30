@@ -10,9 +10,9 @@ class EnvConfig(pydantic.BaseModel):
     """The services an application runs in a single environment."""
 
     env: Environment = Field(
-        default=Environment.DEV,
+        default=Environment.QA,
         description="Environment the application is provisioned into.",
-        examples=["dev"],
+        examples=["qa"],
     )
     services: list[ServiceConfig] = Field(
         default_factory=list,

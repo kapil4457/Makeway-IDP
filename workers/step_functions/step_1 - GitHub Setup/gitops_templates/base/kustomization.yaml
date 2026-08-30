@@ -1,6 +1,9 @@
-# Shared base for the __APP_NAME__ app — the namespaces imported by every
-# __APP_NAME__ environment overlay.
+# Shared base for the __APP_NAME__ app — what every __APP_NAME__ env overlay
+# (qa/uat/prod) imports. Namespaces are NOT here: each overlay creates exactly
+# its own {app}-{env} via envs/<env>/namespace.yaml, so one overlay never
+# manages the other environments' namespaces. network-policies.yaml ships the
+# namespace's default-deny + allow-same-namespace isolation.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
-  - namespaces.yaml
+  - network-policies.yaml

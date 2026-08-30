@@ -72,7 +72,8 @@ appId (PK)
 appName (unique)
 teamId (FK → Team)
 appRepoUrl (nullable)
-gitOpsRepoUrl (nullable)
+gitOpsPath (nullable) — folder inside the platform repo, e.g. argocd/apps/<appName>/
+  (platform repo URL is constant config — core.config.GITOPS_REPO_URL — not stored)
 createdAt / createdBy
 modifiedAt / modifiedBy
 ```
@@ -89,7 +90,7 @@ Reference data for the fixed EKS clusters.
 clusterId (PK)
 clusterName (unique)
 kubeApiEndpoint
-environment                 -- "dev" | "uat" | "prod"
+environment                 -- "qa" | "uat" | "prod"
 createdAt / createdBy
 modifiedAt / modifiedBy
 ```
@@ -107,7 +108,7 @@ One deployable unit inside an App's monorepo, scoped to a cluster.
 
 ```
 svcId (PK)
-svcName                      -- "<service_name>-<env>", e.g. "orders-api-dev"
+svcName                      -- "<service_name>-<env>", e.g. "orders-api-qa"
 serviceType [spring-boot, fast-api, node-js]
 repoPath (nullable)
 appId (FK → App)
@@ -147,13 +148,12 @@ its reconciliation status.
 
 ## Capability
 
-Requested infrastructure (database, storage, messaging, observability, …),
-per environment.
+Requested infrastructure (database, storage, messaging, …), per environment.
 
 ```
 capabilityId (PK)
 capabilityType               -- discriminator string, e.g. "rel_database", "storage",
-                               "messaging", "observability"
+                               "messaging"
 status [pending, in_progress, success, failed, partially_failed]
 errorMessage (nullable)
 createdAt / createdBy
@@ -333,16 +333,31 @@ If any step fails, the whole registration rolls back — no half-created app.
 
 ## Entity Relationships
 
+```mermaid
+erDiagram
+    Team ||--o{ TeamMember : "has members"
+    User ||--o{ TeamMember : "belongs to"
+    Team ||--o{ App : "owns"
+    App ||--o{ Service : "contains"
+    Cluster ||--o{ Service : "hosts"
+    Cluster ||--o{ Namespace : "scopes"
+    Service ||--o{ Namespace : "has"
+    Service ||--o{ CapabilityAccess : "granted"
+    Capability ||--o{ CapabilityAccess : "to"
+    Capability ||--|| InfraRequirement : "configures (1:1)"
+    Capability ||--o{ AccessBinding : "binds"
+    Service ||--o{ AccessBinding : "binds"
+    Namespace ||--o{ AccessBinding : "binds"
+    Namespace ||--o{ NetworkIsolationRule : "isolates"
+    Service ||--o{ DeploymentSetup : "deploys via"
+    App ||--o{ Request : "receives"
+    Request ||--o{ Job : "schedules"
+    Job o|--o| Capability : "optional (nullable FK)"
+    Job o|--o| DeploymentSetup : "optional (nullable FK)"
 ```
-Team ──< TeamMember >── User
-Team ──< App
-App ──< Service >── Cluster
-Service ──< Namespace >── Cluster
-Capability ──< InfraRequirement (1:1)
-Capability ──< CapabilityAccess >── Service
-Capability ──< AccessBinding >── Service, Namespace
-Namespace ──< NetworkIsolationRule
-Service ──< DeploymentSetup
-App ──< Request
-Request ──< Job >── Capability (nullable), DeploymentSetup (nullable)
-```
+
+At a glance: **Team** is the ownership root, **App** is the anchor of a
+monorepo, **Service** is one deployable in that monorepo on one **Cluster**
+(where the environment lives), **Capability** is the desired infrastructure
+with its **InfraRequirement** config/output, **Request** captures one
+user action, and **Job** is a single async attempt at executing it.

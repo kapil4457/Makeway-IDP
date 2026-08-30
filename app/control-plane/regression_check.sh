@@ -28,7 +28,7 @@ check "StorageConfig schema exists" "yes" "$(echo "$SCHEMA" | python -c 'import 
 check "AppConfig has model example" "order-service" "$(echo "$SCHEMA" | python -c 'import json,sys; s=json.load(sys.stdin); print(s["components"]["schemas"]["AppConfig"]["examples"][0]["app_name"])')"
 check "app_name is required" "yes" "$(echo "$SCHEMA" | python -c 'import json,sys; s=json.load(sys.stdin); print("yes" if "app_name" in s["components"]["schemas"]["AppConfig"].get("required",[]) else "no")')"
 check "app_name has kebab pattern" "yes" "$(echo "$SCHEMA" | python -c 'import json,sys; s=json.load(sys.stdin); print("yes" if "pattern" in s["components"]["schemas"]["AppConfig"]["properties"]["app_name"] else "no")')"
-check "env is an enum" "dev" "$(echo "$SCHEMA" | python -c 'import json,sys; s=json.load(sys.stdin); print(s["components"]["schemas"]["Environment"]["enum"][0])')"
+check "env is an enum" "qa" "$(echo "$SCHEMA" | python -c 'import json,sys; s=json.load(sys.stdin); print(s["components"]["schemas"]["Environment"]["enum"][0])')"
 check "S3 region example" "ap-south-1" "$(echo "$SCHEMA" | python -c 'import json,sys; s=json.load(sys.stdin); print(s["components"]["schemas"]["S3Config"]["properties"]["region"]["examples"][0])')"
 check "response model has app_name" "yes" "$(echo "$SCHEMA" | python -c 'import json,sys; s=json.load(sys.stdin); print("yes" if "app_name" in s["components"]["schemas"]["AppCreateResponse"]["properties"] else "no")')"
 

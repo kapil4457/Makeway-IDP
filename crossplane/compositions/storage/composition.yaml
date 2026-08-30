@@ -1,0 +1,88 @@
+# Makeway ObjectStorage Composition — expands one ObjectStorage XR into an
+# S3 bucket. Kept minimal on purpose: it has no VPC dependencies and no
+# cross-resource references.
+#
+# Security: buckets are private by construction — no bucket policy, ACL, or
+# website config is ever composed, access is exclusively through the scoped
+# IAM keys the Step-2 Lambda extracts. `publicAccessBlockConfiguration` pins
+# the AWS PublicAccessBlock on the bucket so a relaxed account-level default
+# can never silently expose one.
+#
+# Crossplane v2 pipeline mode: the function-patch-and-transform function turns
+# the XR's parameters into the composed Managed Resources below.
+#
+# Naming: the S3 bucket name IS the Managed Resource name. The platform uses
+# deterministic names so units stay globally unique and greppable:
+#   {appName}-{env}-{capabilityName}   e.g. order-service-qa-storage
+#
+# Connection details aggregated by the function into the XR's connection Secret
+# (in {appName}-{env}): bucketName, region, arn.
+#
+# CloudFront (spec.parameters.cloudfront=true on the XR) is not wired yet —
+# it only needs an S3 access-point + distribution MR added here when a
+# capability actually asks for CDN. The XRD field exists already, so adding it
+# later is a repo commit + ArgoCD sync, not a Lambda change.
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: object-storage.aws
+  labels:
+    provider: aws
+    managed-by: makeway
+spec:
+  compositeTypeRef:
+    apiVersion: makeway.io/v1beta1
+    kind: ObjectStorage
+  mode: Pipeline
+  pipeline:
+    - step: patch-and-transform
+      functionRef:
+        name: function-patch-and-transform
+      input:
+        apiVersion: pt.fn.crossplane.io/v1beta1
+        kind: Resources
+        # Namespaced XR → the function writes the aggregated Secret into the XR's
+        # namespace ({appName}-{env}, where the pod runs), named by the XR's
+        # spec.writeConnectionSecretToRef.name. No cross-namespace secret chain.
+        writeConnectionSecretToRef:
+          patches:
+            - type: FromCompositeFieldPath
+              fromFieldPath: spec.writeConnectionSecretToRef.name
+              toFieldPath: name
+        resources:
+          - name: bucket
+            base:
+              apiVersion: s3.aws.m.upbound.io/v1beta1
+              kind: Bucket
+              spec:
+                forProvider:
+                  region: ap-south-1
+                  # Buckets are private by design — block every public-access
+                  # path at the resource level (the account-level default is
+                  # not something app buckets should depend on).
+                  publicAccessBlockConfiguration:
+                    blockPublicAcls: true
+                    blockPublicPolicy: true
+                    ignorePublicAcls: true
+                    restrictPublicBuckets: true
+                providerConfigRef:
+                  name: makeway
+            patches:
+              # The S3 bucket name comes from the Managed Resource's metadata.name,
+              # so the patched bucket name must equal the XR's bucketName.
+              - type: FromCompositeFieldPath
+                fromFieldPath: spec.parameters.bucketName
+                toFieldPath: metadata.name
+              - type: FromCompositeFieldPath
+                fromFieldPath: spec.parameters.region
+                toFieldPath: spec.forProvider.region
+            connectionDetails:
+              - type: FromFieldPath
+                name: bucketName
+                fromFieldPath: metadata.name
+              - type: FromFieldPath
+                name: region
+                fromFieldPath: spec.forProvider.region
+              - type: FromFieldPath
+                name: arn
+                fromFieldPath: status.atProvider.arn

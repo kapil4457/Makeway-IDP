@@ -1,0 +1,117 @@
+# Makeway MessageQueue Composition — expands one MessageQueue XR into an SQS
+# queue + a dead-letter queue, mirroring the platform SQS module
+# (terraform/modules/sqs/): 60s visibility, 4-day retention, DLQ redrive after
+# 3 receives, DLQ 14-day retention.
+#
+# Crossplane v2 pipeline mode: the function-patch-and-transform function turns
+# the XR's parameters into the composed Managed Resources below.
+#
+# The redrive policy is a JSON string needing BOTH the DLQ ARN and the max
+# receive count, so it is built with a CombineFromComposite patch rather than a
+# cross-resource reference. The DLQ ARN is passed by the Step-2 Lambda as the
+# deterministic `dlqArn` XR parameter
+# (arn:aws:sqs:{region}:{account}:{queueName}-dlq).
+#
+# Connection details aggregated by the function for the Step-2 Lambda: queue
+# URL + ARN, and the derived DLQ URL + ARN.
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: message-queue.aws
+  labels:
+    provider: aws
+    managed-by: makeway
+spec:
+  compositeTypeRef:
+    apiVersion: makeway.io/v1beta1
+    kind: MessageQueue
+  mode: Pipeline
+  pipeline:
+    - step: patch-and-transform
+      functionRef:
+        name: function-patch-and-transform
+      input:
+        apiVersion: pt.fn.crossplane.io/v1beta1
+        kind: Resources
+        writeConnectionSecretToRef:
+          patches:
+            - type: FromCompositeFieldPath
+              fromFieldPath: spec.writeConnectionSecretToRef.name
+              toFieldPath: name
+        resources:
+          # ---- the DLQ first; its URL/ARN are the redrive target ----------
+          - name: dlq
+            base:
+              apiVersion: sqs.aws.m.upbound.io/v1beta1
+              kind: Queue
+              spec:
+                forProvider:
+                  region: ap-south-1
+                  messageRetentionPeriod: 1209600
+                  tags:
+                    managed-by: makeway
+                providerConfigRef:
+                  name: makeway
+            patches:
+              - type: FromCompositeFieldPath
+                fromFieldPath: spec.parameters.region
+                toFieldPath: spec.forProvider.region
+              - type: FromCompositeFieldPath
+                fromFieldPath: spec.parameters.queueName
+                toFieldPath: spec.forProvider.name
+                transforms:
+                  - type: string
+                    string:
+                      fmt: "%s-dlq"
+            connectionDetails:
+              - type: FromFieldPath
+                name: dlqUrl
+                fromFieldPath: status.atProvider.id
+              - type: FromFieldPath
+                name: dlqArn
+                fromFieldPath: status.atProvider.arn
+
+          # ---- the primary queue ------------------------------------------
+          - name: queue
+            base:
+              apiVersion: sqs.aws.m.upbound.io/v1beta1
+              kind: Queue
+              spec:
+                forProvider:
+                  region: ap-south-1
+                  visibilityTimeoutSeconds: 60
+                  messageRetentionPeriod: 345600
+                  tags:
+                    managed-by: makeway
+                providerConfigRef:
+                  name: makeway
+            patches:
+              - type: FromCompositeFieldPath
+                fromFieldPath: spec.parameters.region
+                toFieldPath: spec.forProvider.region
+              - type: FromCompositeFieldPath
+                fromFieldPath: spec.parameters.queueName
+                toFieldPath: spec.forProvider.name
+              - type: FromCompositeFieldPath
+                fromFieldPath: spec.parameters.visibilityTimeoutSeconds
+                toFieldPath: spec.forProvider.visibilityTimeoutSeconds
+              - type: FromCompositeFieldPath
+                fromFieldPath: spec.parameters.messageRetentionSeconds
+                toFieldPath: spec.forProvider.messageRetentionPeriod
+              # redrive policy → DLQ (built from dlqArn + maxReceiveCount)
+              - type: CombineFromComposite
+                combine:
+                  variables:
+                    - fromFieldPath: spec.parameters.dlqArn
+                    - fromFieldPath: spec.parameters.maxReceiveCount
+                  strategy: string
+                  string:
+                    fmt: '{"deadLetterTargetArn":"%s","maxReceiveCount":%d}'
+                toFieldPath: spec.forProvider.redrivePolicy
+            connectionDetails:
+              - type: FromFieldPath
+                name: queueUrl
+                fromFieldPath: status.atProvider.id
+              - type: FromFieldPath
+                name: queueArn
+                fromFieldPath: status.atProvider.arn

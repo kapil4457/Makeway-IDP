@@ -1,0 +1,10 @@
+# Kustomize root for the External Secrets Operator bootstrap.
+#
+# Deliberately NOT included:
+#   - aws-credentials.yaml — the store's static AWS keys are patched in during
+#     bootstrap (crossplane/secrets/ pattern). ArgoCD re-rendering it would
+#     clobber the live keys on every sync, so it stays out of git.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - cluster-secret-store.yaml

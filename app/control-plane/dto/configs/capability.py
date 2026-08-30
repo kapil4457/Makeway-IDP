@@ -5,7 +5,6 @@ from pydantic import Field, Tag
 
 from .database_config import DatabaseConfig
 from .messaging_config import MessagingConfig
-from .observability_config import ObservabilityConfig
 from .storage_config import StorageConfig
 from dto.enums.capability_types import CapabilityType
 
@@ -13,7 +12,6 @@ from dto.enums.capability_types import CapabilityType
 # `config` object is validated against. The union below is keyed on that field.
 CapabilityConfig = Annotated[
     Annotated[StorageConfig, Tag(CapabilityType.STORAGE)]
-    | Annotated[ObservabilityConfig, Tag(CapabilityType.OBSERVABILITY)]
     | Annotated[MessagingConfig, Tag(CapabilityType.MESSAGING)]
     | Annotated[DatabaseConfig, Tag(CapabilityType.REL_DATABASE)],
     pydantic.Field(discriminator="type"),

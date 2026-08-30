@@ -1,0 +1,42 @@
+# Installs External Secrets Operator via its official Helm chart, managed by
+# ArgoCD (apply once by hand, ArgoCD keeps it live thereafter):
+#
+#   kubectl apply -n argocd -f argocd/external-secrets/eso-install-application.yaml
+#
+# targetRevision is a Helm semver range; pin it once a version is validated.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: external-secrets
+  namespace: argocd
+  labels:
+    managed-by: makeway
+spec:
+  project: default
+  source:
+    repoURL: https://charts.external-secrets.io
+    targetRevision: ">=0.10.0 <0.20.0"
+    chart: external-secrets
+    helm:
+      parameters:
+        # The store's static creds Secret must sit in the operator namespace so
+        # the ClusterSecretStore can reference it by name.
+        - name: serviceAccount.create
+          value: "true"
+        - name: serviceAccount.name
+          value: external-secrets
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: external-secrets
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m

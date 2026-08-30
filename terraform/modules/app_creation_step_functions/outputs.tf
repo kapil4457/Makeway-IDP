@@ -22,3 +22,18 @@ output "github_pat_secret_name" {
   description = "Name of the Secrets Manager secret holding the GitHub PAT."
   value       = aws_secretsmanager_secret.github_pat.name
 }
+
+output "step2_function_arn" {
+  description = "ARN of the Step-2 (Crossplane Provisioning) Lambda."
+  value       = aws_lambda_function.step2.arn
+}
+
+output "step2_function_name" {
+  description = "Name of the Step-2 (Crossplane Provisioning) Lambda."
+  value       = aws_lambda_function.step2.function_name
+}
+
+output "step2_zip_path" {
+  description = "Path of the packaged Step-2 Lambda zip. Carried to the apply job as an artifact (the plan job builds it; apply runs on a fresh checkout)."
+  value       = data.archive_file.step2.output_path
+}

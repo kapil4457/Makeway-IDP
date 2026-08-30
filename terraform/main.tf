@@ -48,7 +48,7 @@ resource "random_password" "internal_api_key" {
 # Where each generated value is consumed (so the random resources aren't
 # flagged as unused when both vars are supplied in tfvars):
 #   local.db_password     -> aws_db_instance (RDS module), DATABASE_URL
-#   local.app_secret_key  -> SECRET_KEY
+#   local.app_secret_key  -> ECS JWT_SECRET_KEY (the control-plane JWT signing key)
 #   local.internal_api_key -> ECS INTERNAL_API_KEY + Step-1 Lambda INTERNAL_API_KEY
 
 locals {
@@ -120,6 +120,30 @@ module "app_creation" {
   control_plane_url     = var.control_plane_url
   internal_api_key      = local.internal_api_key
   makeway_platform_repo = var.makeway_platform_repo
+
+  step2_name               = "makeway-app-creation-step2"
+  step2_handler_source_dir = "../workers/step_functions/step_2 - Infra Provisioning"
+  kube_api_endpoint        = var.kube_api_endpoint
+  kube_ca_cert             = var.kube_ca_cert
+  kube_token               = var.kube_token
+  step2_max_attempts       = var.step2_max_attempts
+}
+
+# --- ArgoCD health reporter ---------------------------------------------------
+# A scheduled Lambda that mirrors the live ArgoCD Application inventory into
+# the control plane's DeploymentSetup table (POST /internal/deployment-setup)
+# so GET /app/{app}/status shows real per-service health instead of 'unknown'.
+# Same exposed-cluster access as Step-2 (KUBE_*); no AWS API permissions.
+module "health_reporter" {
+  source = "./modules/health_reporter"
+
+  handler_source_dir  = "../workers/health_reporter"
+  control_plane_url   = var.control_plane_url
+  internal_api_key    = local.internal_api_key
+  kube_api_endpoint   = var.kube_api_endpoint
+  kube_ca_cert        = var.kube_ca_cert
+  kube_token          = var.kube_token
+  schedule_expression = var.health_reporter_schedule
 }
 
 # --- ALB (control-plane front door, public subnets) ---
@@ -302,8 +326,11 @@ module "ecs" {
     # The internal API is fail-closed when INTERNAL_API_KEY is unset — the
     # app-creation workers can't report status without it.
     INTERNAL_API_KEY = local.internal_api_key
-    SECRET_KEY       = local.app_secret_key
-    LOG_LEVEL        = "INFO"
+    # The control plane reads JWT_SECRET_KEY (auth/jwt.py). It was previously
+    # set as SECRET_KEY here, silently falling back to the literal default —
+    # keep these two in sync when renaming.
+    JWT_SECRET_KEY = local.app_secret_key
+    LOG_LEVEL      = "INFO"
   }
 }
 
