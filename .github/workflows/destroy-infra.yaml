@@ -83,6 +83,46 @@ jobs:
       - name: Show Destroy Plan
         run: terraform show -no-color tfdestroy
 
+      - name: Drain ECS before destroy
+        env:
+          AWS_REGION: ${{ vars.AWS_REGION || 'ap-south-1' }}
+        run: |
+          set -euo pipefail
+          # Outputs may already be gone on a re-run after a partial destroy —
+          # drain only what still exists. The ASG lookup below is independent.
+          CLUSTER="$(terraform output -raw ecs_cluster_name 2>/dev/null || true)"
+          SERVICE="$(terraform output -raw ecs_service_name 2>/dev/null || true)"
+          if [ -n "$CLUSTER" ] && [ -n "$SERVICE" ]; then
+            # Stop the control-plane task so DeleteService doesn't hang waiting on
+            # a RUNNING task (the capacity provider also can't drain while it runs).
+            aws ecs update-service --region "$AWS_REGION" --cluster "$CLUSTER" \
+              --service "$SERVICE" --desired-count 0
+            aws ecs wait services-stable --region "$AWS_REGION" \
+              --cluster "$CLUSTER" --services "$SERVICE"
+          fi
+          # Scale the container-instance ASG to zero. Without this the capacity
+          # provider's managed scaling (target_capacity=100) keeps terminating
+          # the idle instance while the ASG relaunches one -> stop/start churn
+          # that blocks DeleteCapacityProvider until the provider times out.
+          ASG="$(aws autoscaling describe-auto-scaling-groups --region "$AWS_REGION" \
+            --query "AutoScalingGroups[?Tags[?Key=='AmazonECSManaged']].AutoScalingGroupName" \
+            --output text)"
+          if [ -n "$ASG" ]; then
+            INSTANCES="$(aws autoscaling describe-auto-scaling-groups --region "$AWS_REGION" \
+              --auto-scaling-group-name "$ASG" \
+              --query "AutoScalingGroups[0].Instances[].InstanceId" --output text)"
+            # Release scale-in protection so desired-capacity 0 can actually
+            # terminate the instance (protect_from_scale_in = true otherwise blocks it).
+            if [ -n "$INSTANCES" ]; then
+              aws autoscaling set-instance-protection --region "$AWS_REGION" \
+                --auto-scaling-group-name "$ASG" --instance-ids $INSTANCES \
+                --no-protected-from-scale-in >/dev/null
+            fi
+            aws autoscaling update-auto-scaling-group --region "$AWS_REGION" \
+              --auto-scaling-group-name "$ASG" --min-size 0 --max-size 0 \
+              --desired-capacity 0
+          fi
+
       - name: Terraform Destroy
         env:
           TF_VAR_control_plane_url: ${{ vars.MAKEWAY_CONTROL_PLANE_URL }}
