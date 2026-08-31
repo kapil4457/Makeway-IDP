@@ -13,8 +13,7 @@
 #
 # Password flow: the Step-2 Lambda generates the master password and writes a K8s
 # Secret `{xrName}-creds` in the XR's namespace before applying the XR. The
-# DBInstance references it via passwordSecretRef (patched from the XR's own
-# metadata.name/namespace — v2 XRs carry no claim labels); the RDS provider
+# DBInstance references it via passwordSecretRef ; the RDS provider
 # mirrors it into the connection Secret. The Lambda later reads it back and
 # pushes it to AWS Secrets Manager (InfraRequirement.secretRef) — Secrets
 # Manager is NOT created by this Composition (see README).
@@ -58,8 +57,6 @@ spec:
               spec:
                 forProvider:
                   region: ap-south-1
-                  # Platform VPC private subnet IDs — filled at bootstrap from
-                  # terraform network remote state (modules/vpc outputs).
                   subnetIds:
                     - __PLATFORM_PRIVATE_SUBNET_1__
                     - __PLATFORM_PRIVATE_SUBNET_2__
@@ -171,9 +168,6 @@ spec:
               - type: FromCompositeFieldPath
                 fromFieldPath: spec.parameters.publiclyAccessible
                 toFieldPath: spec.forProvider.publiclyAccessible
-              # capacity (1..10) → instance class. The XRD default (5) guarantees
-              # the field exists; the map transform looks the integer up as a
-              # string key.
               - type: FromCompositeFieldPath
                 fromFieldPath: spec.parameters.capacity
                 toFieldPath: spec.forProvider.instanceClass
@@ -216,7 +210,5 @@ spec:
               - type: FromFieldPath
                 name: username
                 fromFieldPath: spec.forProvider.username
-              # The RDS provider mirrors the passwordSecretRef value into the
-              # MR's connection secret — pass it through verbatim.
               - type: FromConnectionSecretKey
                 name: password

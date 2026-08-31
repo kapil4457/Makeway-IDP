@@ -62,7 +62,7 @@ spec:
   package: xpkg.upbound.io/upbound/provider-aws-iam:v2.7.1
   packagePullPolicy: IfNotPresent
 ---
-# Crossplane v2 pipeline mode: every Composition below is a single
+#  every Composition below is a single
 # function-patch-and-transform step. The function is what turns the XR's
 # parameters into the composed Managed Resources (and aggregates their
 # connectionDetails into the XR's connection Secret).

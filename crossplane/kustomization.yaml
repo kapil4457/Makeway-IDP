@@ -6,9 +6,7 @@
 #     the real credentials on every sync. Bootstrap-only, gitignored content.
 #   - providers/provider-config.yaml — reference doc only. The operational
 #     ProviderConfig `makeway` lives in secrets/provider-creds.yaml.
-#
-# Everything listed here is cluster-scoped, safe to git-track and safe for
-# selfHeal/prune.
+
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
