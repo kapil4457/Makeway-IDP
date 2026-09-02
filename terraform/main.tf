@@ -101,7 +101,7 @@ module "sqs_consumer" {
   # Resolved relative to the terraform/ root where plan/apply run.
   handler_source_file = "../workers/sqs_consumer/handler.py"
 
-  state_machine_arn = module.app_creation.state_machine_arn
+  # state_machine_arn = module.app_creation.state_machine_arn
 }
 
 # --- App-creation workflow — Step 1 (GitHub Setup) ---
@@ -110,41 +110,41 @@ module "sqs_consumer" {
 # into the Makeway platform repo (PR), and reports status to the control plane.
 # The GitHub PAT lives in Secrets Manager and is read at runtime (never baked
 # into artifacts). state_machine_arn feeds the consumer above.
-module "app_creation" {
-  source = "./modules/app_creation_step_functions"
+# module "app_creation" {
+#   source = "./modules/app_creation_step_functions"
 
-  name                  = "makeway-app-creation-step1"
-  handler_source_dir    = "../workers/step_functions/step_1 - GitHub Setup"
-  github_owner          = var.github_owner
-  github_pat            = var.github_pat
-  control_plane_url     = var.control_plane_url
-  internal_api_key      = local.internal_api_key
-  makeway_platform_repo = var.makeway_platform_repo
+#   name                  = "makeway-app-creation-step1"
+#   handler_source_dir    = "../workers/step_functions/step_1 - GitHub Setup"
+#   github_owner          = var.github_owner
+#   github_pat            = var.github_pat
+#   control_plane_url     = var.control_plane_url
+#   internal_api_key      = local.internal_api_key
+#   makeway_platform_repo = var.makeway_platform_repo
 
-  step2_name               = "makeway-app-creation-step2"
-  step2_handler_source_dir = "../workers/step_functions/step_2 - Infra Provisioning"
-  kube_api_endpoint        = var.kube_api_endpoint
-  kube_ca_cert             = var.kube_ca_cert
-  kube_token               = var.kube_token
-  step2_max_attempts       = var.step2_max_attempts
-}
+#   step2_name               = "makeway-app-creation-step2"
+#   step2_handler_source_dir = "../workers/step_functions/step_2 - Infra Provisioning"
+#   kube_api_endpoint        = var.kube_api_endpoint
+#   kube_ca_cert             = var.kube_ca_cert
+#   kube_token               = var.kube_token
+#   step2_max_attempts       = var.step2_max_attempts
+# }
 
 # --- ArgoCD health reporter ---------------------------------------------------
 # A scheduled Lambda that mirrors the live ArgoCD Application inventory into
 # the control plane's DeploymentSetup table (POST /internal/deployment-setup)
 # so GET /app/{app}/status shows real per-service health instead of 'unknown'.
 # Same exposed-cluster access as Step-2 (KUBE_*); no AWS API permissions.
-module "health_reporter" {
-  source = "./modules/health_reporter"
+# module "health_reporter" {
+#   source = "./modules/health_reporter"
 
-  handler_source_dir  = "../workers/health_reporter"
-  control_plane_url   = var.control_plane_url
-  internal_api_key    = local.internal_api_key
-  kube_api_endpoint   = var.kube_api_endpoint
-  kube_ca_cert        = var.kube_ca_cert
-  kube_token          = var.kube_token
-  schedule_expression = var.health_reporter_schedule
-}
+#   handler_source_dir  = "../workers/health_reporter"
+#   control_plane_url   = var.control_plane_url
+#   internal_api_key    = local.internal_api_key
+#   kube_api_endpoint   = var.kube_api_endpoint
+#   kube_ca_cert        = var.kube_ca_cert
+#   kube_token          = var.kube_token
+#   schedule_expression = var.health_reporter_schedule
+# }
 
 # --- ALB (control-plane front door, public subnets) ---
 # Internet -> ALB (public) -> ECS task ENIs (private). The app SG keeps the
