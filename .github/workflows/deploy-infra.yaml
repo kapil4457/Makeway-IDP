@@ -70,12 +70,12 @@ jobs:
           path: terraform/modules/sqs_consumer/dist/makeway-app-creation-consumer.zip
           if-no-files-found: error
 
-      - name: Upload step-1 function package
-        uses: actions/upload-artifact@v4
-        with:
-          name: step1-zip
-          path: terraform/modules/app_creation_step_functions/dist/makeway-app-creation-step1.zip
-          if-no-files-found: error
+      # - name: Upload step-1 function package
+      #   uses: actions/upload-artifact@v4
+      #   with:
+      #     name: step1-zip
+      #     path: terraform/modules/app_creation_step_functions/dist/makeway-app-creation-step1.zip
+      #     if-no-files-found: error
 
       - name: Upload plan artifact
         uses: actions/upload-artifact@v4
@@ -127,11 +127,11 @@ jobs:
           name: consumer-zip
           path: terraform/modules/sqs_consumer/dist/
 
-      - name: Download step-1 function package
-        uses: actions/download-artifact@v4
-        with:
-          name: step1-zip
-          path: terraform/modules/app_creation_step_functions/dist/
+      # - name: Download step-1 function package
+      #   uses: actions/download-artifact@v4
+      #   with:
+      #     name: step1-zip
+      #     path: terraform/modules/app_creation_step_functions/dist/
 
       - name: Terraform Init
         working-directory: terraform
