@@ -1,0 +1,25 @@
+# Mirrors crossplane/root-application.yaml — the ArgoCD Application that syncs
+# the Crossplane configuration (XRD + Compositions + Providers + Function)
+# into this cluster. Canonical source: crossplane/root-application.yaml.
+# Syncs the crossplane/ root directly: database placement (VPC/subnets) is
+# supplied per claim by the Step-2 Lambda from SSM, not patched into the tree.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: makeway-crossplane
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/kapil4457/Makeway-IDP
+    path: crossplane
+    targetRevision: main
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: crossplane-system
+  syncPolicy:
+    automated:
+      selfHeal: true
+      prune: true
+    syncOptions:
+      - CreateNamespace=true

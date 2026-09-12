@@ -43,6 +43,13 @@ resource "aws_iam_role_policy_attachment" "health_reporter_logs" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
 }
 
+# VPC-attached: the control plane is fully private (Cloud Map resolves in-VPC
+# only); NAT egress reaches the exposed kube endpoint.
+resource "aws_iam_role_policy_attachment" "health_reporter_vpc" {
+  role       = aws_iam_role.health_reporter.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole"
+}
+
 # --- Lambda -------------------------------------------------------------------
 
 resource "aws_lambda_function" "health_reporter" {
@@ -55,6 +62,12 @@ resource "aws_lambda_function" "health_reporter" {
 
   timeout     = var.timeout_seconds
   memory_size = var.memory_mb
+
+  # In-VPC: private control plane + NAT egress to the kube endpoint.
+  vpc_config {
+    subnet_ids         = var.subnet_ids
+    security_group_ids = var.security_group_ids
+  }
 
   environment {
     variables = {

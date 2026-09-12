@@ -88,3 +88,45 @@ variable "target_group_arn" {
   type        = string
   default     = null
 }
+
+variable "service_registry_arn" {
+  description = "Cloud Map service registry ARN to register the tasks into (null = none). Lets in-cluster callers resolve the tasks by DNS name even as task ENI IPs churn."
+  type        = string
+  default     = null
+}
+
+variable "ui_container_image" {
+  description = "Platform-UI container image (nginx serving the built SPA). Empty string disables the UI task definition and service."
+  type        = string
+  default     = ""
+}
+
+variable "ui_service_name" {
+  description = "Name of the ECS service running the platform UI."
+  type        = string
+  default     = "frontend"
+}
+
+variable "ui_desired_count" {
+  description = "Number of UI tasks to run."
+  type        = number
+  default     = 1
+}
+
+variable "ui_container_port" {
+  description = "Port the UI container listens on (nginx)."
+  type        = number
+  default     = 80
+}
+
+variable "ui_container_memory_reservation" {
+  description = "Soft memory reservation (MiB) for the UI container. No hard limit, so UI + control plane fit one t3.micro."
+  type        = number
+  default     = 128
+}
+
+variable "ui_target_group_arn" {
+  description = "ALB target group to register the UI tasks against (ip target type). Required when ui_container_image is set."
+  type        = string
+  default     = null
+}

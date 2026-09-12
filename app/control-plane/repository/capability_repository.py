@@ -48,3 +48,12 @@ class CapabilityRepository:
         self.session.flush()
 
         return capability
+
+    def delete(self, capability: Capability) -> None:
+        """
+        Remove a capability row within the calling unit of work. Flushed, not
+        committed — the caller owns the eventual ``commit`` and the FK
+        ordering (access + infra-requirement rows must go first).
+        """
+        self.session.delete(capability)
+        self.session.flush()

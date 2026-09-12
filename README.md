@@ -1,6 +1,6 @@
 # Makeway
 
-An **AI-assisted internal developer platform**. A developer asks for an app — the language stacks, a database, storage, a message queue, a notification topic — and Makeway does the rest: it creates the GitHub monorepo, scaffolds the services, provisions the real AWS infrastructure through Crossplane, and rolls the app out to Kubernetes through GitOps. Boring, repeatable, and fully automated.
+An **internal developer platform**. A developer asks for an app — the language stacks, a database, storage, a message queue, a notification topic — and Makeway does the rest: it creates the GitHub monorepo, scaffolds the services, provisions the real AWS infrastructure through Crossplane, and rolls the app out to Kubernetes through GitOps. Boring, repeatable, and fully automated.
 
 The platform's pitch is simple: **declared state is the truth, and reconciliation is the mechanism.** The control plane records what a team asked for, workers keep turning that into reality, and ArgoCD keeps reality matching what was asked.
 
@@ -141,7 +141,9 @@ Makeway/
 │       └── step_2 - Infra Provisioning/ Crossplane claims + extract (claim_templates/)
 │
 ├── argocd/
-│   ├── root-application.yaml   ApplicationSet: argocd/apps/*/envs/* → per-env Applications
+│   ├── clusters/               Per-cluster bootstrap: one kustomize bundle + one env-scoped
+│   │   │                       ApplicationSet per environment (qa/uat/prod) — each applied
+│   │   └── (qa|uat|prod)/      on that cluster's own ArgoCD
 │   └── external-secrets/       ESO bootstrap: ClusterSecretStore + install/store Applications
 │
 ├── crossplane/
@@ -213,7 +215,7 @@ flowchart LR
 
 ArgoCD watches Git, not the registry. Every deploy provably maps to a build — the git history records the exact image SHA that went live. A rollback is a `git revert` on the bump commit.
 
-GitOps configs live in the **platform repo** (`argocd/apps/<app>/`), not per-app repos, because the `makeway-apps` ApplicationSet's git generator discovers `argocd/apps/*/envs/*` — a new app is simply a directory the Step-1 worker creates. No wiring, no per-app repo, no per-app secret.
+GitOps configs live in the **platform repo** (`argocd/apps/<app>/`), not per-app repos, because each cluster's env-scoped ApplicationSet (`argocd/clusters/<env>/`, one per environment on its own cluster) git-generates `argocd/apps/*/envs/<env>` — a new app is simply a directory the Step-1 worker creates, and each cluster only deploys its own environment. No wiring, no per-app repo, no per-app secret.
 
 ### Secrets have a delivery path of their own
 
@@ -273,24 +275,28 @@ This is deliberate: a Terraform plan has to be seen by a human before it touches
 
 ### 1. Clusters and GitOps (one-time bootstrap)
 
-The raw infrastructure is Terraform (`terraform/BOOTSTRAP.md` → `terraform/README.md`). The cluster-side platform components are applied once by hand, then ArgoCD keeps them live:
+The raw infrastructure is Terraform (`terraform/BOOTSTRAP.md` → `terraform/README.md`). The platform is **one cluster per environment** (qa/uat/prod); each cluster-side platform component set is applied once by hand, then ArgoCD keeps it live. Bootstrap once per cluster:
 
 ```bash
-# Crossplane + providers (see crossplane/README.md)
+# Install ArgoCD itself (Helm), then the cluster-side platform stack.
+# On clusters that predate the split, first remove the old global set:
+#   kubectl delete applicationset makeway-apps -n argocd
+
+# Crossplane core + providers (see crossplane/README.md)
 helm upgrade --install crossplane --namespace crossplane-system \
   --create-namespace crossplane-stable/crossplane
 kubectl apply -f crossplane/providers/aws.yaml
-kubectl apply -f crossplane/secrets/provider-creds.yaml
-kubectl apply -n argocd -f crossplane/root-application.yaml
+kubectl apply -f crossplane/secrets/provider-creds.yaml   # bootstrap creds, gitignored
 
-# External Secrets Operator (see argocd/external-secrets/README.md)
-kubectl apply -n argocd -f argocd/external-secrets/eso-install-application.yaml
+# ESO credential Secret (bootstrap-only, see argocd/external-secrets/README.md)
 kubectl apply -n external-secrets -f aws-credentials.yaml   # bootstrap creds, gitignored
-kubectl apply -n argocd -f argocd/external-secrets/store-application.yaml
 
-# The per-app ApplicationSet (once)
-kubectl apply -n argocd -f argocd/root-application.yaml
+# ONE per-cluster bundle: crossplane App + ESO install/store Apps + the
+# env-scoped ApplicationSet for THIS cluster (qa/uat/prod).
+kubectl apply -k argocd/clusters/<env>
 ```
+
+Then register the cluster (endpoint + `makeway-worker` token) in the control plane with `POST /cluster/register` (see the [Step-2 README](workers/step_functions/step_2 - Infra Provisioning/README.md)).
 
 ### 2. Control plane
 
@@ -364,9 +370,9 @@ How the plumbing works:
 | `AWS_REGION` | var | repo **Variables** · Actions | Variable |
 | `MAKEWAY_CONTROL_PLANE_URL` | var | repo **Variables** · Actions → `TF_VAR_control_plane_url` | Variable |
 | `DOCKERHUB_CONTROL_PLANE_IMAGE` | var | repo **Variables** · Actions (default `kapil4457/makeway-control-plane`) | Variable |
-| `kube_api_endpoint` | var | repo **Variables** · Actions → `TF_VAR_kube_api_endpoint` | Variable |
-| `kube_token` | secret | repo **Secrets** · Actions → `TF_VAR_kube_token` | 🔒 **Secret** |
-| `kube_ca_cert` | var | repo **Variables** · Actions → `TF_VAR_kube_ca_cert` (optional; empty disables TLS verification) | Variable |
+| `kube_api_endpoint` | var | repo **Variables** · Actions → `TF_VAR_kube_api_endpoint` — **fallback/default cluster**; per-env endpoint comes from the control-plane Cluster registry | Variable |
+| `kube_token` | secret | repo **Secrets** · Actions → `TF_VAR_kube_token` — **fallback token** for clusters registered without one | 🔒 **Secret** |
+| `kube_ca_cert` | var | repo **Variables** · Actions → `TF_VAR_kube_ca_cert` (optional; empty disables TLS verification) — fallback CA | Variable |
 | `github_pat` | secret | **AWS Secrets Manager** ⇒ `makeway/github-pat` (Step-1 reads it at runtime) — never a GHA secret | none (Secrets Manager) |
 | `internal_api_key` | secret | **nothing** — auto-generated on apply (tfvars default `""`) | none (auto-gen) |
 | `db_password` | secret | **nothing** — auto-generated on apply (tfvars default `""`) | none (auto-gen) |
@@ -375,7 +381,7 @@ How the plumbing works:
 | `region`, `vpc_cidr`, subnets, `azs` | var | defaults or local tfvars | none (default) |
 | `ecs_*`, `rds_*`, `alb_*`, `bastion_*`, `step2_*` | var | defaults or local tfvars | none (default) |
 | Control-plane env: `DATABASE_URL`, `APP_CREATION_QUEUE_URL`, `SQS_REGION`, `INTERNAL_API_KEY`, `JWT_SECRET_KEY`, `LOG_LEVEL` | env | **ECS task env** — built by `terraform/main.tf` from `local.*` / module outputs | none (Terraform-built) |
-| `DOCKERHUB_USERNAME`, `DOCKERHUB_TOKEN` | secret | **platform repo** Secrets (for `build-control-plane.yaml`) **and every generated app repo** Secrets (for `ci-<service>.yaml`) | 🔒 **Secret** (both repos) |
+| `DOCKERHUB_USERNAME`, `DOCKERHUB_TOKEN` | secret | **platform repo** Secrets (for `build-control-plane.yaml` + `build-frontend.yaml`) **and every generated app repo** Secrets (for `ci-<service>.yaml`) | 🔒 **Secret** (both repos) |
 | `DOCKERHUB_IMAGE` | var | **generated app repo** Variables | Variable (in app repo) |
 | `GITOPS_PAT` | secret | **generated app repo** Secrets (for the tag-bump to gitops) | 🔒 **Secret** (in app repo) |
 
@@ -385,14 +391,15 @@ How the plumbing works:
 
 | Name | Kind | Used by |
 |---|---|---|
-| `AWS_ROLE_ARN` | 🔒 Secret | `deploy-infra.yaml`, `destroy-infra.yaml`, `deploy-control-plane.yaml` — OIDC assume-role |
-| `AWS_REGION` | Variable | the three workflows above (default `ap-south-1`) |
+| `AWS_ROLE_ARN` | 🔒 Secret | `deploy-infra.yaml`, `destroy-infra.yaml`, `deploy-control-plane.yaml`, `deploy-frontend.yaml` — OIDC assume-role |
+| `AWS_REGION` | Variable | the deploy workflows above (default `ap-south-1`) |
 | `MAKEWAY_CONTROL_PLANE_URL` | Variable | the workflows above → `TF_VAR_control_plane_url` |
 | `MAKEWAY_KUBE_API_ENDPOINT` | Variable | the workflows above → `TF_VAR_kube_api_endpoint` |
 | `MAKEWAY_KUBE_TOKEN` | 🔒 Secret | the workflows above → `TF_VAR_kube_token` |
 | `MAKEWAY_KUBE_CA_CERT` | Variable | the workflows above → `TF_VAR_kube_ca_cert` (optional, empty = TLS off) |
 | `DOCKERHUB_CONTROL_PLANE_IMAGE` | Variable | `build-control-plane.yaml` + `deploy-control-plane.yaml` image tag (default `kapil4457/makeway-control-plane`) |
-| `DOCKERHUB_USERNAME` / `DOCKERHUB_TOKEN` | 🔒 Secrets | `build-control-plane.yaml` docker login + push |
+| `DOCKERHUB_FRONTEND_IMAGE` | Variable | `build-frontend.yaml` + `deploy-frontend.yaml` image tag (default `kapil4457/makeway-frontend`) |
+| `DOCKERHUB_USERNAME` / `DOCKERHUB_TOKEN` | 🔒 Secrets | `build-control-plane.yaml` + `build-frontend.yaml` docker login + push |
 
 > Set `MAKEWAY_*` (except the DockerHub ones) at **repo level**, not just the
 > `makeway-infra-deploy` environment — the *plan* job in `deploy-infra.yaml` runs
@@ -410,22 +417,25 @@ How the plumbing works:
 
 `terraform.tfvars` is gitignored, so CI supplies the three **required** inputs
 (no tfvars default) from GitHub Actions instead — wired into `deploy-infra.yaml`,
-`deploy-control-plane.yaml` and `destroy-infra.yaml` (both plan/apply steps,
-plus a fail-fast guard that names the missing variable):
+`deploy-control-plane.yaml`, `deploy-frontend.yaml` and `destroy-infra.yaml`
+(both plan/apply steps, plus a fail-fast guard that names the missing variable):
 
 | TF_VAR | GHA source | Kind |
 |---|---|---|
-| `TF_VAR_control_plane_url` | `MAKEWAY_CONTROL_PLANE_URL` | Variable |
+| `TF_VAR_control_plane_url` | `MAKEWAY_CONTROL_PLANE_URL` | Variable — vestigial: workers reach the control plane in-VPC via Cloud Map, so the value is no longer consumed |
 | `TF_VAR_kube_api_endpoint` | `MAKEWAY_KUBE_API_ENDPOINT` | Variable |
 | `TF_VAR_kube_token` | `MAKEWAY_KUBE_TOKEN` | 🔒 Secret |
 | `TF_VAR_kube_ca_cert` | `MAKEWAY_KUBE_CA_CERT` | Variable (optional, default empty) |
 | `TF_VAR_ecs_image` | `DOCKERHUB_CONTROL_PLANE_IMAGE` + `inputs.image_tag` | Variable |
+| `TF_VAR_frontend_image` | `DOCKERHUB_FRONTEND_IMAGE` + `inputs.image_tag` | Variable |
 
 Set `MAKEWAY_*` at **repo level** so the environment-less *plan* job in
-`deploy-infra.yaml` can read them. `MAKEWAY_KUBE_TOKEN` should hold the
+`deploy-infra.yaml` can read them. `MAKEWAY_KUBE_TOKEN` should hold a
 `makeway-worker` ServiceAccount token, and `MAKEWAY_KUBE_API_ENDPOINT` the
 pinggy TCP-tunnel endpoint (`https://<host>:<port>` in front of
-`127.0.0.1:6443`) — see the
+`127.0.0.1:6443`) — these are now the **fallback/default cluster** (used when a
+registered cluster row has no token, and by the health reporter); per-env
+endpoint/token/CA are registered per cluster in the control plane — see the
 [Step-2 README](workers/step_functions/step_2 - Infra Provisioning/README.md).
 Every other Terraform input keeps its tfvars default — local `terraform.tfvars`
 is still the override if you ever apply from a machine.
@@ -463,9 +473,9 @@ is still the override if you ever apply from a machine.
 
 | Env var | Read in | Meaning | Set by | Default |
 |---|---|---|---|---|
-| `KUBE_API_ENDPOINT` | `step_2/handler.py:66` | Public kube-apiserver URL (pinggy TCP tunnel in front of `127.0.0.1:6443`) | module `var.kube_api_endpoint` ← **local tfvars / CI var** | — (required) |
-| `KUBE_TOKEN` | `step_2/handler.py:68` | `makeway-worker` SA bearer token | module `var.kube_token` ← **local tfvars / CI secret** | — (required) |
-| `KUBE_CA_CERT` | `step_2/handler.py:67`, `_kube_ssl_context()` | base64 CA cert for the exposed apiserver — **empty for the pinggy TCP tunnel** (raw TCP means the apiserver's self-signed cert can't match the pinggy hostname) | module `var.kube_ca_cert` | empty → TLS verification disabled (dev) |
+| `KUBE_API_ENDPOINT` | `step_2/handler.py:66` | **Fallback** public kube-apiserver URL — used only when a registered cluster row has no token. Per-capability endpoint now comes from the Cluster registry via `GET /internal/requests/{id}` (pinggy TCP tunnel in front of `127.0.0.1:6443`) | module `var.kube_api_endpoint` ← **local tfvars / CI var** | — (required) |
+| `KUBE_TOKEN` | `step_2/handler.py:68` | **Fallback** `makeway-worker` SA bearer token for clusters registered without one | module `var.kube_token` ← **local tfvars / CI secret** | — (required) |
+| `KUBE_CA_CERT` | `step_2/handler.py:67`, `_kube_ssl_context()` | **Fallback** base64 CA cert — **empty for the pinggy TCP tunnel** (raw TCP means the apiserver's self-signed cert can't match the pinggy hostname) | module `var.kube_ca_cert` | empty → TLS verification disabled (dev) |
 | `CONTROL_PLANE_URL` / `INTERNAL_API_KEY` | top of handler | same as Step 1 | module env | — |
 | `GITHUB_OWNER` / `GITHUB_TOKEN_SECRET_ID` / `MAKEWAY_PLATFORM_REPO` | top of handler | same as Step 1 | module env | `Makeway-IDP` |
 | `SECRETS_PREFIX` | `step_2/handler.py:78` | Secrets Manager name prefix | module `var.secrets_prefix` | `makeway` |

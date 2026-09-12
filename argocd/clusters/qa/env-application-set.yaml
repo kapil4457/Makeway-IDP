@@ -1,0 +1,55 @@
+# Per-environment app catalog for the QA cluster.
+#
+# Replaces the old single global ApplicationSet (argocd/root-application.yaml,
+# now deleted). Each cluster runs its OWN ArgoCD, so this ApplicationSet is
+# scoped to one env folder under argocd/apps/*/envs/ and generates exactly the
+# Applications for {app}-{env} overlays of THIS cluster. Because it is applied
+# on (and resolves) the cluster it lives on, `server: kubernetes.default.svc`
+# stays correct — no `argocd cluster add` is needed.
+#
+# The generated Application names ({{app}}-<env>) are unchanged from the old
+# global set, so existing DeploymentSetup.argocdAppName records stay valid.
+#
+#   kubectl apply -k argocd/clusters/qa
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: makeway-apps-qa
+  namespace: argocd
+spec:
+  goTemplate: true
+  generators:
+    - git:
+        repoURL: https://github.com/kapil4457/Makeway-IDP
+        revision: main
+        directories:
+          - path: argocd/apps/*/envs/qa
+  template:
+    metadata:
+      name: '{{ path[2] }}-qa'
+      namespace: argocd
+      labels:
+        app: '{{ path[2] }}'
+        environment: qa
+        managed-by: makeway
+    spec:
+      project: default
+      source:
+        repoURL: https://github.com/kapil4457/Makeway-IDP
+        targetRevision: main
+        path: '{{ path }}'
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: '{{ path[2] }}-qa'
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true
+        retry:
+          limit: 5
+          backoff:
+            duration: 5s
+            factor: 2
+            maxDuration: 3m

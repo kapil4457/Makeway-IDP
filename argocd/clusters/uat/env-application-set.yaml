@@ -1,0 +1,47 @@
+# Per-environment app catalog for the UAT cluster. Same shape as
+# argocd/clusters/qa/env-application-set.yaml — scoped to the uat env folder,
+# applied on the cluster it serves. See the qa file for the full rationale.
+#
+#   kubectl apply -k argocd/clusters/uat
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: makeway-apps-uat
+  namespace: argocd
+spec:
+  goTemplate: true
+  generators:
+    - git:
+        repoURL: https://github.com/kapil4457/Makeway-IDP
+        revision: main
+        directories:
+          - path: argocd/apps/*/envs/uat
+  template:
+    metadata:
+      name: '{{ path[2] }}-uat'
+      namespace: argocd
+      labels:
+        app: '{{ path[2] }}'
+        environment: uat
+        managed-by: makeway
+    spec:
+      project: default
+      source:
+        repoURL: https://github.com/kapil4457/Makeway-IDP
+        targetRevision: main
+        path: '{{ path }}'
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: '{{ path[2] }}-uat'
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true
+        retry:
+          limit: 5
+          backoff:
+            duration: 5s
+            factor: 2
+            maxDuration: 3m

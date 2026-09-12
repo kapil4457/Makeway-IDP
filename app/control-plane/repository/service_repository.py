@@ -51,3 +51,12 @@ class ServiceRepository:
         self.session.refresh(service)
 
         return service
+
+    def delete(self, service: Service) -> None:
+        """
+        Remove a service row within the calling unit of work. Flushed, not
+        committed — the caller owns the eventual ``commit`` (and the FK
+        ordering: access/deployment rows must go first).
+        """
+        self.session.delete(service)
+        self.session.flush()

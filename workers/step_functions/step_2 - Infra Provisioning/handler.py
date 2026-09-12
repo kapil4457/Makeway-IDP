@@ -76,11 +76,14 @@ PLATFORM_REPO = f"{GITHUB_OWNER}/{MAKEWAY_PLATFORM_REPO}"
 # --- Provisioning knobs -------------------------------------------------------
 STEP = "provision_infra"
 SECRETS_PREFIX = os.environ.get("SECRETS_PREFIX", "makeway")
-# Local-cluster seam: pods run off-VPC so databases are publicly reachable. On
-# managed EKS set RDS_PUBLICLY_ACCESSIBLE=false and RDS_INGRESS_CIDR to the VPC
-# CIDR (or worker-node SG).
+# SSM parameter holding the platform VPC facts JSON the database claims need
+# ({vpcId, subnetIds, cidr}) — read per apply, see _platform_vpc().
+PLATFORM_VPC_PARAMETER = os.environ["PLATFORM_VPC_PARAMETER"]
+# DB ingress: an empty env derives from the platform VPC CIDR published in SSM
+# (right where pods run in-VPC — EKS). Local-cluster seam: pods run off-VPC, so
+# RDS_PUBLICLY_ACCESSIBLE=true + RDS_INGRESS_CIDR = the machine's public IP.
 RDS_PUBLICLY_ACCESSIBLE = os.environ.get("RDS_PUBLICLY_ACCESSIBLE", "true").lower() == "true"
-RDS_INGRESS_CIDR = os.environ.get("RDS_INGRESS_CIDR", "0.0.0.0/0")
+RDS_INGRESS_CIDR = os.environ.get("RDS_INGRESS_CIDR", "")
 CONN_SECRET_SUFFIX = "-connection-details"
 
 TEMPLATES_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "claim_templates")
@@ -89,6 +92,11 @@ TEMPLATES_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "claim_
 REL_DATABASE = "rel_database"
 STORAGE = "storage"
 MESSAGING = "messaging"
+
+# requestType values the control plane exposes on the request-details payload;
+# apply/check/extract branch on them for teardown runs.
+REQUEST_TYPE_DELETE = "delete_app"
+REQUEST_TYPE_UPDATE = "update_app"
 
 # Capability types whose XR instances back onto the AWS API directly (S3/SQS/SNS).
 # Pods on the local cluster have no IRSA, so extract provisions a scoped IAM
@@ -99,9 +107,32 @@ _iam = boto3.client("iam", region_name=REGION)
 _secretsmanager = boto3.client("secretsmanager", region_name=REGION)
 _sts = boto3.client("sts", region_name=REGION)
 _secrets_client = boto3.client("secretsmanager", region_name=REGION)
+_ssm = boto3.client("ssm", region_name=REGION)
 _github_token_cache: str | None = None
 _git_identity_cache: dict | None = None
 _account_id_cache: str | None = None
+_platform_vpc_cache: dict | None = None
+
+
+def _platform_vpc() -> dict:
+    """Platform VPC facts ({vpcId, subnetIds, cidr}) for database claims.
+
+    Published by the platform root's Terraform (aws_ssm_parameter.platform_vpc,
+    name from PLATFORM_VPC_PARAMETER). Replaces the values the old
+    argocd/crossplane-overlays kustomize overlay baked in from git — a rebuilt
+    platform VPC now propagates on the next provision, no repo edit. Cached
+    per warm container like _account_id().
+    """
+    global _platform_vpc_cache
+    if _platform_vpc_cache is None:
+        raw = _ssm.get_parameter(Name=PLATFORM_VPC_PARAMETER)["Parameter"]["Value"]
+        facts = json.loads(raw)
+        _platform_vpc_cache = {
+            "vpc_id": facts["vpcId"],
+            "subnet_ids": list(facts["subnetIds"]),
+            "cidr": facts["cidr"],
+        }
+    return _platform_vpc_cache
 
 
 # --------------------------------------------------------------------------- #
@@ -178,41 +209,64 @@ def _report(
 # Kubernetes API access (stdlib HTTPS + bearer token)
 # --------------------------------------------------------------------------- #
 
-_ssl_context: ssl.SSLContext | None = None
+_kube_ssl_contexts: dict[str, ssl.SSLContext] = {}
 
 
-def _kube_ssl_context() -> ssl.SSLContext:
-    """SSL context for the kube-apiserver call.
+def _kube_ssl_context(ca_cert: str | None = None) -> ssl.SSLContext:
+    """SSL context for a kube-apiserver call, cached per CA bundle.
 
-    Uses the provided CA bundle when KUBE_CA_CERT is set; otherwise (local
-    cluster behind a tunnel with a self-signed cert) verification is disabled
-    with a loud warning — the bearer token is still the auth boundary.
+    Accepts an optional per-cluster CA (from the claim / control-plane
+    registry); when absent it falls back to the module global KUBE_CA_CERT.
+    A populated CA enables real verification. An empty CA (the pinggy
+    raw-TCP reality — the cluster's self-signed cert SANs never match the
+    tunnel host) disables verification with a loud warning; the bearer token
+    is still the auth boundary. One no-verify context is shared under the
+    empty-CA key.
     """
-    global _ssl_context
-    if _ssl_context is None:
-        if KUBE_CA_CERT:
-            context = ssl.create_default_context(cafile=None)
-            context.load_verify_locations(
-                cadata=base64.b64decode(KUBE_CA_CERT).decode("utf-8")
-            )
-            _ssl_context = context
-        else:
-            logger.warning(
-                "KUBE_CA_CERT is unset — TLS verification against the exposed "
-                "cluster is DISABLED. Set the CA bundle in production."
-            )
-            context = ssl.create_default_context()
-            context.check_hostname = False
-            context.verify_mode = ssl.CERT_NONE
-            _ssl_context = context
-    return _ssl_context
+    ca = ca_cert if ca_cert is not None else KUBE_CA_CERT
+    cached = _kube_ssl_contexts.get(ca)
+    if cached is not None:
+        return cached
+
+    if ca:
+        context = ssl.create_default_context(cafile=None)
+        context.load_verify_locations(
+            cadata=base64.b64decode(ca).decode("utf-8")
+        )
+    else:
+        logger.warning(
+            "no CA cert for this cluster API — TLS verification DISABLED. "
+            "Set KUBE_CA_CERT or the cluster's kubeCaCert in production."
+        )
+        context = ssl.create_default_context()
+        context.check_hostname = False
+        context.verify_mode = ssl.CERT_NONE
+
+    _kube_ssl_contexts[ca] = context
+    return context
 
 
-def _kube(method: str, path: str, payload=None, content_type: str = "application/json"):
-    """Raw call to the (exposed) kube-apiserver. Returns (status, body)."""
-    url = f"{KUBE_API_ENDPOINT}{path}"
+def _kube(
+    method: str,
+    path: str,
+    payload=None,
+    content_type: str = "application/json",
+    *,
+    endpoint: str | None = None,
+    token: str | None = None,
+    ca_cert: str | None = None,
+):
+    """Raw call to a (exposed) kube-apiserver. Returns (status, body).
+
+    ``endpoint``/``token``/``ca_cert`` override the module globals — per-claim
+    cluster selection sourced from the control-plane registry. None falls back
+    to KUBE_API_ENDPOINT / KUBE_TOKEN / KUBE_CA_CERT.
+    """
+    api_endpoint = (endpoint or KUBE_API_ENDPOINT).rstrip("/")
+    api_token = token or KUBE_TOKEN
+    url = f"{api_endpoint}{path}"
     headers = {
-        "Authorization": f"Bearer {KUBE_TOKEN}",
+        "Authorization": f"Bearer {api_token}",
         "Accept": "application/json",
         "Content-Type": content_type,
     }
@@ -221,7 +275,7 @@ def _kube(method: str, path: str, payload=None, content_type: str = "application
         request.data = json.dumps(payload).encode("utf-8")
     try:
         with urllib.request.urlopen(
-            request, context=_kube_ssl_context(), timeout=90
+            request, context=_kube_ssl_context(ca_cert=ca_cert), timeout=90
         ) as response:
             raw = response.read().decode("utf-8")
             body = json.loads(raw) if raw else None
@@ -235,23 +289,77 @@ def _kube(method: str, path: str, payload=None, content_type: str = "application
         return exc.code, body
 
 
-def _kube_upsert(collection: str, name: str, manifest: dict) -> None:
+def _kube_upsert(
+    collection: str,
+    name: str,
+    manifest: dict,
+    *,
+    endpoint: str | None = None,
+    token: str | None = None,
+    ca_cert: str | None = None,
+) -> None:
     """Create-or-update a namespaced object. Idempotent (merge-patch on 200)."""
     item = f"{collection}/{name}"
-    status, _body = _kube("GET", item)
+    status, _body = _kube("GET", item, endpoint=endpoint, token=token, ca_cert=ca_cert)
     if status == 404:
-        status, body = _kube("POST", collection, manifest)
+        status, body = _kube(
+            "POST", collection, manifest, endpoint=endpoint, token=token, ca_cert=ca_cert
+        )
     else:
         status, body = _kube(
-            "PATCH", item, manifest, content_type="application/merge-patch+json"
+            "PATCH", item, manifest, content_type="application/merge-patch+json",
+            endpoint=endpoint, token=token, ca_cert=ca_cert,
         )
     if not 200 <= status < 300:
         detail = json.dumps(body)[:500] if isinstance(body, (dict, list)) else str(body)
         raise RuntimeError(f"kube {collection}/{name} -> HTTP {status}: {detail}")
 
 
-def _kube_get(collection: str, name: str) -> tuple[int, dict | None]:
-    return _kube("GET", f"{collection}/{name}")
+def _kube_get(
+    collection: str,
+    name: str,
+    *,
+    endpoint: str | None = None,
+    token: str | None = None,
+    ca_cert: str | None = None,
+) -> tuple[int, dict | None]:
+    return _kube(
+        "GET", f"{collection}/{name}", endpoint=endpoint, token=token, ca_cert=ca_cert
+    )
+
+
+def _kube_delete(
+    collection: str,
+    name: str,
+    *,
+    endpoint: str | None = None,
+    token: str | None = None,
+    ca_cert: str | None = None,
+) -> tuple[int, dict | None]:
+    """Delete a namespaced object; a 404 is a successful no-op. Returns status.
+
+    Deleting an XR instance makes Crossplane tear its composed AWS resources
+    down; the object stays with a deletionTimestamp until it finalizes, which
+    ``_check``'s teardown branch polls to a 404.
+    """
+    status, body = _kube(
+        "DELETE",
+        f"{collection}/{name}",
+        endpoint=endpoint,
+        token=token,
+        ca_cert=ca_cert,
+    )
+    if status == 404:
+        return status, body
+    if not 200 <= status < 300:
+        detail = json.dumps(body)[:500] if isinstance(body, (dict, list)) else str(body)
+        raise RuntimeError(f"kube DELETE {collection}/{name} -> HTTP {status}: {detail}")
+    return status, body
+
+
+def _gone(status: int) -> bool:
+    """404 = the object is gone (a deleted XR reads back as 404)."""
+    return status == 404
 
 
 # --------------------------------------------------------------------------- #
@@ -295,6 +403,11 @@ def _claims_for(app_name: str, capability: dict, account_id: str) -> list[dict]:
     env = capability.get("environment") or "qa"
     region = config.get("region") or DEFAULT_REGION
     cap_id = str(capability["capabilityId"])
+    # Per-capability cluster access, from the control-plane registry. None on
+    # any of these means "use the Lambda env KUBE_* fallback" downstream.
+    kube_endpoint = capability.get("kubeApiEndpoint")
+    kube_token = capability.get("kubeToken")
+    kube_ca_cert = capability.get("kubeCaCert")
 
     claims: list[dict] = []
 
@@ -310,6 +423,10 @@ def _claims_for(app_name: str, capability: dict, account_id: str) -> list[dict]:
                 namespace=namespace,
                 capability_id=cap_id,
                 aws_api=False,
+                environment=env,
+                kube_endpoint=kube_endpoint,
+                kube_token=kube_token,
+                kube_ca_cert=kube_ca_cert,
                 tokens={
                     "APP_NAME": app_name,
                     "ENV": env,
@@ -318,7 +435,13 @@ def _claims_for(app_name: str, capability: dict, account_id: str) -> list[dict]:
                     "CAPACITY": str(config.get("capacity") or 5),
                     "REGION": region,
                     "PUBLICLY_ACCESSIBLE": "true" if RDS_PUBLICLY_ACCESSIBLE else "false",
-                    "INGRESS_CIDR": RDS_INGRESS_CIDR,
+                    "INGRESS_CIDR": RDS_INGRESS_CIDR or _platform_vpc()["cidr"],
+                    # Platform placement facts, read from SSM (never committed
+                    # to git) — fill the claim parameters the Composition
+                    # patches into the DBSubnetGroup / SecurityGroup.
+                    "PLATFORM_VPC_ID": _platform_vpc()["vpc_id"],
+                    "PLATFORM_PRIVATE_SUBNET_1": _platform_vpc()["subnet_ids"][0],
+                    "PLATFORM_PRIVATE_SUBNET_2": _platform_vpc()["subnet_ids"][1],
                 },
             )
         )
@@ -338,6 +461,10 @@ def _claims_for(app_name: str, capability: dict, account_id: str) -> list[dict]:
                 namespace=namespace,
                 capability_id=cap_id,
                 aws_api=True,
+                environment=env,
+                kube_endpoint=kube_endpoint,
+                kube_token=kube_token,
+                kube_ca_cert=kube_ca_cert,
                 tokens={
                     "APP_NAME": app_name,
                     "ENV": env,
@@ -364,6 +491,10 @@ def _claims_for(app_name: str, capability: dict, account_id: str) -> list[dict]:
                     namespace=namespace,
                     capability_id=cap_id,
                     aws_api=True,
+                    environment=env,
+                    kube_endpoint=kube_endpoint,
+                    kube_token=kube_token,
+                    kube_ca_cert=kube_ca_cert,
                     tokens={
                         "APP_NAME": app_name,
                         "ENV": env,
@@ -384,6 +515,10 @@ def _claims_for(app_name: str, capability: dict, account_id: str) -> list[dict]:
                     namespace=namespace,
                     capability_id=cap_id,
                     aws_api=True,
+                    environment=env,
+                    kube_endpoint=kube_endpoint,
+                    kube_token=kube_token,
+                    kube_ca_cert=kube_ca_cert,
                     tokens={
                         "APP_NAME": app_name,
                         "ENV": env,
@@ -407,6 +542,11 @@ def _claim(
     capability_id: str,
     aws_api: bool,
     tokens: dict,
+    *,
+    environment: str | None = None,
+    kube_endpoint: str | None = None,
+    kube_token: str | None = None,
+    kube_ca_cert: str | None = None,
 ) -> dict:
     tokens = dict(tokens)
     tokens.update(
@@ -427,7 +567,22 @@ def _claim(
         "aws_api": aws_api,
         "sm_name": f"{SECRETS_PREFIX}/{tokens['APP_NAME']}/{tokens['ENV']}/{slug}",
         "capability_id": capability_id,
+        # Per-claim cluster selection (from the capability's Cluster registry
+        # row). None = fall back to the module KUBE_* globals in _kube.
+        "environment": environment,
+        "kube_endpoint": kube_endpoint,
+        "kube_token": kube_token,
+        "kube_ca_cert": kube_ca_cert,
     }
+
+
+def _claim_kube(claim: dict) -> tuple[str | None, str | None, str | None]:
+    """Per-claim kube access (endpoint, token, CA); None/absent => globals."""
+    return (
+        claim.get("kube_endpoint"),
+        claim.get("kube_token"),
+        claim.get("kube_ca_cert"),
+    )
 
 
 def _claim_manifest(claim: dict) -> dict:
@@ -483,6 +638,23 @@ def _parse_claim_yaml(text: str) -> dict:
             key = key.strip()
             if value.strip() == "":
                 cursor += 1
+                # Block list ("- item") under this key, items at indent+2 — the
+                # only sequences claim templates use (platformSubnetIds).
+                if (
+                    cursor < len(lines)
+                    and lines[cursor][0] == indent + 2
+                    and lines[cursor][1].startswith("- ")
+                ):
+                    items = []
+                    while (
+                        cursor < len(lines)
+                        and lines[cursor][0] == indent + 2
+                        and lines[cursor][1].startswith("- ")
+                    ):
+                        items.append(scalar(lines[cursor][1][2:]))
+                        cursor += 1
+                    result[key] = items
+                    continue
                 child = parse(indent + 2)
                 result[key] = child if child else None
                 continue
@@ -494,12 +666,48 @@ def _parse_claim_yaml(text: str) -> dict:
 
 
 # --------------------------------------------------------------------------- #
+# Removal bookkeeping (env-scoped delete + update-embedded removals)
+# --------------------------------------------------------------------------- #
+
+def _removed_capability_keys(details: dict) -> set[tuple[str | None, str]]:
+    """``(environment, capabilityType)`` pairs this run must tear down.
+
+    ``delete_app``: every capability scoped to the rawRequest env is a teardown
+    target (their rows still exist — the control plane purges them on SUCCESS).
+    ``update_app``: the entries' ``remove_capabilities`` type lists. Anything
+    else (a create, an update without removals) returns an empty set.
+    """
+    request_type = details.get("requestType")
+    raw = details.get("rawRequest") or {}
+    removed: set[tuple[str | None, str]] = set()
+    if request_type == REQUEST_TYPE_DELETE:
+        env = raw.get("env")
+        if env:
+            removed = {
+                (cap.get("environment"), cap.get("capabilityType"))
+                for cap in details.get("capabilities") or []
+                if cap.get("environment") == env
+            }
+    elif request_type == REQUEST_TYPE_UPDATE:
+        for entry in raw.get("updates") or []:
+            env = entry.get("env")
+            for cap_type in entry.get("remove_capabilities") or []:
+                removed.add((env, cap_type))
+    return removed
+
+
+def _capability_is_removed(cap: dict, removed: set[tuple[str | None, str]]) -> bool:
+    return (cap.get("environment"), cap.get("capabilityType")) in removed
+
+
+# --------------------------------------------------------------------------- #
 # Apply action
 # --------------------------------------------------------------------------- #
 
 def _apply_claim(claim: dict) -> None:
     namespace = claim["namespace"]
     manifest = _claim_manifest(claim)
+    endpoint, token, ca_cert = _claim_kube(claim)
 
     # RDS master password: generate once and store in {claimName}-creds before
     # the XR instance is applied (the Composition's passwordSecretRef references
@@ -520,6 +728,9 @@ def _apply_claim(claim: dict) -> None:
             f"/api/v1/namespaces/{namespace}/secrets",
             f"{claim['claim_name']}-creds",
             creds,
+            endpoint=endpoint,
+            token=token,
+            ca_cert=ca_cert,
         )
 
     kind = manifest["kind"].lower()
@@ -528,33 +739,176 @@ def _apply_claim(claim: dict) -> None:
         f"/apis/makeway.io/v1beta1/namespaces/{namespace}/{plural}",
         claim["claim_name"],
         manifest,
+        endpoint=endpoint,
+        token=token,
+        ca_cert=ca_cert,
     )
     logger.info("applied %s instance %s/%s", kind, namespace, claim["claim_name"])
+
+
+# --------------------------------------------------------------------------- #
+# Teardown — delete XR instances + credential artifacts
+# --------------------------------------------------------------------------- #
+
+def _claim_iam_user(claim: dict) -> str:
+    """The IAM user name ``_ensure_aws_identity`` created for this claim."""
+    return (
+        f"makeway-{claim['tokens']['APP_NAME']}-{claim['tokens']['ENV']}-{claim['slug']}"
+    )[:64]
+
+
+def _delete_claim(claim: dict) -> None:
+    """Delete one XR instance and its apply-time ``{claim}-creds`` Secret.
+
+    Deleting the XR makes Crossplane tear the composed AWS resources down as it
+    finalizes; the namespace itself is ArgoCD's (the env overlay removal
+    cascades it) — the worker never deletes namespaces. Update removals clean
+    their credential artifacts per claim here; an env delete sweeps the rest.
+    """
+    kind = _claim_kind(claim)
+    plural = kind.lower() + "s"
+    endpoint, token, ca_cert = _claim_kube(claim)
+    _kube_delete(
+        f"/apis/makeway.io/v1beta1/namespaces/{claim['namespace']}/{plural}",
+        claim["claim_name"],
+        endpoint=endpoint,
+        token=token,
+        ca_cert=ca_cert,
+    )
+    _kube_delete(
+        f"/api/v1/namespaces/{claim['namespace']}/secrets",
+        f"{claim['claim_name']}-creds",
+        endpoint=endpoint,
+        token=token,
+        ca_cert=ca_cert,
+    )
+    _delete_claim_credentials(claim)
+    logger.info("deleted %s instance %s/%s", kind, claim["namespace"], claim["claim_name"])
+
+
+def _delete_claim_credentials(claim: dict) -> None:
+    """Best-effort removal of a claim's Secrets Manager secret + IAM user.
+
+    The Crossplane teardown owns the AWS resources; these are just the
+    credential artifacts extract created. Failures are logged, not raised — a
+    lingering secret must not fail the teardown."""
+    try:
+        _secretsmanager.delete_secret(
+            SecretId=claim["sm_name"], ForceDeleteWithoutRecovery=True
+        )
+        logger.info("deleted secret %s", claim["sm_name"])
+    except _secretsmanager.exceptions.ResourceNotFoundException:
+        pass
+    except Exception as exc:  # noqa: BLE001 — best-effort cleanup
+        logger.warning("SM cleanup skipped for %s: %s", claim["sm_name"], exc)
+    _iam_delete_user(_claim_iam_user(claim))
+
+
+def _iam_delete_user(user_name: str) -> None:
+    """Best-effort delete of one claim's IAM user (keys + inline policy first)."""
+    try:
+        for key in _iam.list_access_keys(UserName=user_name)["AccessKeyMetadata"]:
+            _iam.delete_access_key(UserName=user_name, AccessKeyId=key["AccessKeyId"])
+        for policy in _iam.list_user_policies(UserName=user_name)["PolicyNames"]:
+            _iam.delete_user_policy(UserName=user_name, PolicyName=policy)
+        _iam.delete_user(UserName=user_name)
+        logger.info("deleted IAM user %s", user_name)
+    except _iam.exceptions.NoSuchEntityException:
+        pass
+    except Exception as exc:  # noqa: BLE001 — best-effort cleanup
+        logger.warning("IAM cleanup skipped for %s: %s", user_name, exc)
+
+
+def _sm_delete_prefix(prefix: str) -> None:
+    """Best-effort delete of every Makeway secret under ``prefix``.
+
+    ``ForceDeleteWithoutRecovery`` skips the recovery window — these are
+    generated capability credentials, not human-held secrets."""
+    try:
+        paginator = _secretsmanager.get_paginator("list_secrets")
+        for page in paginator.paginate(Filters=[{"Key": "name", "Values": [prefix]}]):
+            for secret in page.get("SecretList", []):
+                name = secret["Name"]
+                if not name.startswith(prefix):
+                    continue
+                try:
+                    _secretsmanager.delete_secret(
+                        SecretId=name, ForceDeleteWithoutRecovery=True
+                    )
+                    logger.info("deleted secret %s", name)
+                except Exception as exc:  # noqa: BLE001 — best-effort
+                    logger.warning("secret cleanup skipped for %s: %s", name, exc)
+    except Exception as exc:  # noqa: BLE001 — best-effort cleanup
+        logger.warning("secret-prefix cleanup skipped for %s: %s", prefix, exc)
+
+
+def _iam_delete_users_by_prefix(prefix: str) -> None:
+    """Best-effort delete of every IAM user extract created for one env."""
+    try:
+        paginator = _iam.get_paginator("list_users")
+        for page in paginator.paginate():
+            for user in page.get("Users", []):
+                if user["UserName"].startswith(prefix):
+                    _iam_delete_user(user["UserName"])
+    except Exception as exc:  # noqa: BLE001 — best-effort cleanup
+        logger.warning("IAM env cleanup skipped for %s*: %s", prefix, exc)
 
 
 def _apply(request_id: int, job_id: int, execution_arn: str | None, event: dict) -> dict:
     details = _control_plane("GET", f"/internal/requests/{request_id}")
     if details.get("job", {}).get("status") == "success":
         logger.info("request_id=%s job already SUCCESS — skipping Step 2 apply", request_id)
-        return {"status": "skipped", "reason": "already_success"}
+        # This output feeds the state machine's Check loop, whose payload
+        # references $.request_id / $.job_id / $.attempt — a bare skipped dict
+        # would fail the state machine. attempt: 1 lets the (idempotent)
+        # Wait/Check/Extract chain run to completion.
+        return {
+            "status": "skipped",
+            "reason": "already_success",
+            "request_id": request_id,
+            "job_id": job_id,
+            "attempt": 1,
+        }
 
     _report(request_id, job_id, "in_progress", execution_arn)
 
     app_name = details["app"]["appName"]
     account_id = _account_id()
-    claims = [
-        claim
-        for cap in details.get("capabilities") or []
-        for claim in _claims_for(app_name, cap, account_id)
-    ]
-    for claim in claims:
+    removed = _removed_capability_keys(details)
+
+    # Mixed mode (update with removals): kept capabilities upsert as today,
+    # removal targets are deleted instead. A plain create/delete splits the
+    # same way — every claim on one side.
+    kept_claims = []
+    removed_claims = []
+    for cap in details.get("capabilities") or []:
+        claims = _claims_for(app_name, cap, account_id)
+        if _capability_is_removed(cap, removed):
+            removed_claims.extend(claims)
+        else:
+            kept_claims.extend(claims)
+
+    for claim in kept_claims:
         _apply_claim(claim)
+
+    deleted = [claim["claim_name"] for claim in removed_claims]
+    for claim in removed_claims:
+        _delete_claim(claim)
+
+    # Env-scoped teardown: one sweep for the credentials extract created for
+    # the whole env (update removals already cleaned theirs per claim).
+    if details.get("requestType") == REQUEST_TYPE_DELETE:
+        env = (details.get("rawRequest") or {}).get("env")
+        if env:
+            _sm_delete_prefix(f"{SECRETS_PREFIX}/{app_name}/{env}/")
+            _iam_delete_users_by_prefix(f"makeway-{app_name}-{env}-")
 
     return {
         "status": "applied",
         "request_id": request_id,
         "job_id": job_id,
-        "claim_count": len(claims),
+        "claim_count": len(kept_claims),
+        "deleted": deleted,
         # Seeds the state-machine Check loop's attempt counter (see the ASL).
         "attempt": 1,
     }
@@ -580,18 +934,31 @@ def _check(request_id: int, job_id: int, execution_arn: str | None, event: dict)
     details = _control_plane("GET", f"/internal/requests/{request_id}")
     app_name = details["app"]["appName"]
     account_id = _account_id()
+    removed = _removed_capability_keys(details)
 
     pending = []
     for cap in details.get("capabilities") or []:
+        is_removed = _capability_is_removed(cap, removed)
         for claim in _claims_for(app_name, cap, account_id):
             kind = _claim_kind(claim)
             # XR kinds are CamelCase ("RelationalDatabase"); the API plural is
             # the lowercase kind + "s" ("relationaldatabases").
             plural = kind.lower() + "s"
+            endpoint, token, ca_cert = _claim_kube(claim)
             status, body = _kube_get(
                 f"/apis/makeway.io/v1beta1/namespaces/{claim['namespace']}/{plural}",
                 claim["claim_name"],
+                endpoint=endpoint,
+                token=token,
+                ca_cert=ca_cert,
             )
+            if is_removed:
+                # Teardown target: gone (404) means done — anything else is
+                # still terminating while Crossplane tears the AWS resources
+                # down (or ArgoCD cascades the namespace away).
+                if not _gone(status):
+                    pending.append(claim["claim_name"])
+                continue
             if status == 404:
                 pending.append(claim["claim_name"])
                 continue
@@ -641,8 +1008,13 @@ def _claim_kind(claim: dict) -> str:
 
 def _read_connection_secret(claim: dict) -> dict:
     """Read the XR instance's connection Secret (written by the function) as str values."""
+    endpoint, token, ca_cert = _claim_kube(claim)
     status, body = _kube_get(
-        f"/api/v1/namespaces/{claim['namespace']}/secrets", claim["conn_secret"]
+        f"/api/v1/namespaces/{claim['namespace']}/secrets",
+        claim["conn_secret"],
+        endpoint=endpoint,
+        token=token,
+        ca_cert=ca_cert,
     )
     if not 200 <= status < 300:
         raise RuntimeError(
@@ -920,6 +1292,109 @@ def _add_kustomization_resource(current: str, resource_line: str) -> str:
     return current.rstrip("\n") + "\n" + line
 
 
+def _env_name(slug: str, secret_key: str) -> str:
+    """Deterministic env var name for one capability secret key.
+
+    ``MAKEWAY_<SLUG>_<KEY>`` — the slug keeps multiple capabilities distinct
+    (``storage`` vs ``db`` vs a queue named ``order-events``), and the
+    camelCase/snake key is uppercased-snake so it is safe in POSIX/env
+    namespaces (``queueUrl`` -> ``QUEUE_URL``, ``bucketName`` -> ``BUCKET_NAME``,
+    ``aws_access_key_id`` -> ``AWS_ACCESS_KEY_ID``).
+    """
+    slug_part = re.sub(r"[^A-Za-z0-9]+", "_", slug).strip("_").upper()
+    key_part = re.sub(r"(?<!^)(?=[A-Z])", "_", secret_key).upper()
+    key_part = re.sub(r"[^A-Za-z0-9]+", "_", key_part).strip("_")
+    return f"MAKEWAY_{slug_part}_{key_part}"
+
+
+def _inject_env_patch(slug: str, services: list[str], secret_keys: list[str]) -> str:
+    """Strategic-merge patch doc(s) that inject one capability Secret into the
+    accessTo services.
+
+    Each service Deployment gets ``env`` entries of the form
+    ``{name: MAKEWAY_<SLUG>_<KEY>, valueFrom.secretKeyRef: {name: <slug>, key}
+    }`` — the Secret is the ESO-materialized one (ExternalSecret target name =
+    claim slug) living in the same ``{app}-{env}`` namespace.
+    """
+    docs = []
+    for svc in services:
+        env_yaml = "\n".join(
+            f"            - name: {_env_name(slug, key)}\n"
+            f"              valueFrom:\n"
+            f"                secretKeyRef:\n"
+            f"                  name: {slug}\n"
+            f"                  key: {key}"
+            for key in secret_keys
+        )
+        docs.append(
+            "apiVersion: apps/v1\n"
+            "kind: Deployment\n"
+            "metadata:\n"
+            f"  name: {svc}\n"
+            "spec:\n"
+            "  template:\n"
+            "    spec:\n"
+            "      containers:\n"
+            f"        - name: {svc}\n"
+            f"          env:\n{env_yaml}"
+        )
+    return "\n---\n".join(docs) + "\n"
+
+
+def _add_kustomization_patch(current: str, patch_line: str) -> str:
+    """Insert ``  - path: <patch_line>`` into an env kustomization's patches list.
+
+    The generated kustomization lists ``patches:`` with one ``- path:`` entry
+    per service. New injection patches (``inject/<slug>-env.yaml``) are inserted
+    as the first entry (idempotent — a repeated line is a no-op).
+    """
+    line = f"  - path: {patch_line}\n"
+    if patch_line in current:
+        return current
+    marker = "patches:\n"
+    if marker in current:
+        return current.replace(marker, marker + line)
+    return current.rstrip("\n") + "\n" + line
+
+
+def _gitops_inject_envs(
+    app_name: str, env: str, claim: dict, access_to: list, secret_value: dict
+) -> None:
+    """Commit the env-injection patch + kustomize entry for one claim.
+
+    For every service the capability grants access to (``accessTo``), add a
+    strategic-merge patch that injects the capability's ESO-materialized Secret
+    keys into the service Deployment as ``MAKEWAY_<slug>_<KEY>`` env vars. Runs
+    during extract, after the ExternalSecret for the claim is committed.
+    """
+    services = sorted(
+        {
+            s.rsplit(f"-{env}", 1)[0] if s.endswith(f"-{env}") else s
+            for s in (access_to or [])
+        }
+    )
+    if not services:
+        return
+
+    slug = claim["slug"]
+    env_dir = f"argocd/apps/{app_name}/envs/{env}"
+    patch_path = f"{env_dir}/inject/{slug}-env.yaml"
+    patch = _inject_env_patch(slug, services, secret_value.keys())
+
+    files = {patch_path: patch}
+    kustomization_path = f"{env_dir}/kustomization.yaml"
+    current = _git_get_file(PLATFORM_REPO, kustomization_path) or ""
+    updated = _add_kustomization_patch(current, f"inject/{slug}-env.yaml")
+    if updated != current:
+        files[kustomization_path] = updated
+
+    _git_upsert_files(
+        PLATFORM_REPO,
+        files,
+        f"makeway: inject {slug} env into {env} services",
+    )
+
+
 def _gitops_external_secret(
     app_name: str, env: str, claim: dict, sm_name: str
 ) -> None:
@@ -960,10 +1435,29 @@ def _extract(request_id: int, job_id: int, execution_arn: str | None, event: dic
     app_name = details["app"]["appName"]
     account_id = _account_id()
 
+    # Teardown runs do no credential work: an env delete already dropped the
+    # whole env overlay (Step-1) and swept its SM/IAM artifacts (apply); an
+    # update's removals had their gitops entries stripped and their per-claim
+    # credentials deleted in apply. The control plane purges the rows on
+    # SUCCESS — reporting success here is what triggers that purge.
+    if details.get("requestType") == REQUEST_TYPE_DELETE:
+        _report(request_id, job_id, "success", execution_arn)
+        return {
+            "status": "success",
+            "request_id": request_id,
+            "job_id": job_id,
+            "capabilities": [],
+        }
+
+    removed = _removed_capability_keys(details)
+
     reports = []
     failures = []
 
     for cap in details.get("capabilities") or []:
+        if _capability_is_removed(cap, removed):
+            # Teardown target — nothing to mirror, nothing to commit.
+            continue
         cap_id = cap["capabilityId"]
         cap_type = cap["capabilityType"]
         env = cap.get("environment") or "qa"
@@ -997,6 +1491,12 @@ def _extract(request_id: int, job_id: int, execution_arn: str | None, event: dic
                 sm_arns[claim["slug"]] = sm_arn
 
                 _gitops_external_secret(app_name, env, claim, claim["sm_name"])
+
+                # Inject the capability's secret into the services granted
+                # access (accessTo) as MAKEWAY_<slug>_<KEY> env vars, via an
+                # env overlay strategic-merge patch.
+                access_to = cap.get("accessToServices") or []
+                _gitops_inject_envs(app_name, env, claim, access_to, secret_value)
 
                 outputs.append(
                     {

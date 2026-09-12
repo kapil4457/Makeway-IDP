@@ -11,14 +11,32 @@
 #   kube_api_endpoint  <- vars.MAKEWAY_KUBE_API_ENDPOINT   (TF_VAR_kube_api_endpoint)
 #   kube_ca_cert       <- vars.MAKEWAY_KUBE_CA_CERT        (TF_VAR_kube_ca_cert, empty for the pinggy TCP tunnel)
 #   kube_token         <- secrets.MAKEWAY_KUBE_TOKEN       (TF_VAR_kube_token)
+# NOTE: kube_api_endpoint / kube_ca_cert / kube_token are now the FALLBACK/default
+# cluster. Per-environment endpoint/token/CA are registered per cluster in the
+# control-plane Cluster registry (POST /cluster/register) and resolved by the
+# Step-2 Lambda at runtime.
 # Secrets (internal_api_key, github_pat) are auto-generated / stored in Secrets
 # Manager and never passed through CI.
 # For a local deploy supply the non-secret overrides you care about, e.g.:
 #   control_plane_url = "http://<alb-dns>.elb.amazonaws.com"
 #   github_owner      = "kapil4457"
 #   makeway_platform_repo = "Makeway-IDP"
+#
+# Platform layout note: the ALB fronts the platform UI (nginx task in the same
+# ECS cluster) — open the `platform_url` output in a browser. The API lives
+# under the same origin (/app, /auth, /cluster, /docs are reverse-proxied by the
+# UI container to the private control plane), and the control plane itself is no
+# longer reachable from the internet. The worker Lambdas (Step-1/Step-2, health
+# reporter) now run in-VPC and reach the control plane via Cloud Map
+# (http://control-plane.makeway.internal:8000) — the public
+# MAKEWAY_CONTROL_PLANE_URL value is no longer consumed by any resource.
 
 # Secrets are auto-generated on first apply when left empty. Pin values here
 # only if you want them under your control (then they live in state):
 #   app_secret_key = "<long-random-string>"
 #   db_password    = "<postgres-master-password>"
+
+# DB ingress on 5432. Empty (default) = the platform VPC CIDR from SSM — right
+# for EKS, where pods run in-VPC. On the local k3d/kind cluster pods are
+# off-VPC, so set your machine's public IP (`curl ifconfig.me`):
+#   rds_ingress_cidr = "203.0.113.7/32"

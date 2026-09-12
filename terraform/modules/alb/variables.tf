@@ -19,6 +19,12 @@ variable "container_port" {
   default     = 8000
 }
 
+variable "target_group_name" {
+  description = "Name of the target group (unique per region). Defaults to the load balancer name; set a distinct name so a port change can recreate it without a name collision."
+  type        = string
+  default     = null
+}
+
 variable "listeners" {
   description = "Ingress ports to open on the load balancer SG (e.g. [\"80\"])."
   type        = list(string)

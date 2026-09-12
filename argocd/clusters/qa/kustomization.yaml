@@ -1,0 +1,19 @@
+# Per-cluster bootstrap bundle for the QA cluster (applied once by hand):
+#
+#   kubectl apply -k argocd/clusters/qa
+#
+# On a fresh cluster this is the single entrypoint that makes ArgoCD manage:
+#   1. the Crossplane configuration Application (../base/crossplane-application.yaml),
+#   2. the External Secrets Operator Helm Application + store kustomize App
+#      (../base/eso-install-application.yaml + ../base/store-application.yaml),
+#   3. this cluster's env-scoped ApplicationSet (env-application-set.yaml),
+#      which generates the {app}-qa Applications on this cluster.
+#
+# The ESO credential Secret (argocd/external-secrets/aws-credentials.yaml) is
+# deliberately NOT here — it is bootstrap-only and gitignored; per-cluster ESO
+# uses its own static keys. See argocd/external-secrets/README.md.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../base
+  - env-application-set.yaml

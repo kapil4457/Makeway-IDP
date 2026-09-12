@@ -9,6 +9,33 @@ class TeamMemberRepository:
     def __init__(self, session: Session):
         self.session = session
 
+    def get_active_team_ids_for_user(self, user_id) -> list[int]:
+        """
+        IDs of the teams the user is an active (``isDeleted=0``) member of.
+
+        Read-only lookup for list endpoints that scope rows by team ownership —
+        same gate the status endpoint's ownership check enforces.
+        """
+        statement = select(TeamMember.teamId).where(
+            TeamMember.isDeleted == False,  # noqa: E712 - SQLAlchemy needs the comparator
+            TeamMember.userId == user_id,
+        )
+
+        return list(self.session.exec(statement).all())
+
+    def get_active_memberships_for_user(self, user_id) -> list[TeamMember]:
+        """
+        Full membership rows (role, timestamps included) for the user's active
+        team memberships. Read-only — the profile endpoint joins team names
+        on top of these.
+        """
+        statement = select(TeamMember).where(
+            TeamMember.isDeleted == False,  # noqa: E712 - SQLAlchemy needs the comparator
+            TeamMember.userId == user_id,
+        )
+
+        return list(self.session.exec(statement).all())
+
     def get_by_user_and_team(
         self,
         user_id,

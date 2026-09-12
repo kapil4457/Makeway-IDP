@@ -4,25 +4,34 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
-    <title>Makeway AI API Docs</title>
+    <title>Makeway · API Docs</title>
+
+    <link rel="icon"
+          type="image/svg+xml"
+          href="/swagger/logo.svg?v=2">
+
+    <!-- Same typeface as the frontend (it self-hosts @fontsource-variable/geist). -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="stylesheet"
+          href="https://fonts.googleapis.com/css2?family=Geist:wght@100..900&display=swap">
 
     <link rel="stylesheet"
           href="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui.css">
 
-    <!-- Makeway favicon -->
-    <link rel="icon"
-          type="image/svg+xml"
-          href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 200'%3E%3Crect width='200' height='200' rx='40' fill='%230B1120'/%3E%3Cpath d='M60 140V50l40 50 40-50v90' stroke='%2338bdf8' stroke-width='16' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3Ccircle cx='60' cy='140' r='10' fill='%230B1120' stroke='%2306b6d4' stroke-width='4'/%3E%3Ccircle cx='60' cy='50' r='10' fill='%230B1120' stroke='%2338bdf8' stroke-width='4'/%3E%3Ccircle cx='100' cy='100' r='10' fill='%230B1120' stroke='%23818cf8' stroke-width='4'/%3E%3Ccircle cx='140' cy='50' r='10' fill='%230B1120' stroke='%23a78bfa' stroke-width='4'/%3E%3Ccircle cx='140' cy='140' r='10' fill='%230B1120' stroke='%23c084fc' stroke-width='4'/%3E%3C/svg%3E">
-
     <style>
+        /* Makeway design tokens — mirrors the frontend's neutral light theme
+           (src/index.css :root) plus the brand purple from the logo mark. */
         :root {
-            --makeway-bg: #f8fafc;
+            --makeway-bg: #ffffff;
             --makeway-surface: #ffffff;
-            --makeway-header: #0b1120;
-            --makeway-accent: #38bdf8;
-            --makeway-border: #e2e8f0;
-            --makeway-text: #1e293b;
-            --makeway-muted: #64748b;
+            --makeway-header: #fafafa;        /* sidebar token, oklch(0.985 0 0) */
+            --makeway-border: #e5e5e5;        /* border token, oklch(0.922 0 0) */
+            --makeway-text: #0a0a0a;          /* foreground token, oklch(0.145 0 0) */
+            --makeway-muted: #737373;         /* muted-foreground, oklch(0.556 0 0) */
+            --makeway-primary: #171717;       /* primary token, oklch(0.205 0 0) */
+            --makeway-brand: #863bff;         /* the logo glyph purple */
+            --makeway-radius: 10px;           /* --radius 0.625rem */
         }
 
         * {
@@ -34,7 +43,7 @@
             background: var(--makeway-bg);
             color: var(--makeway-text);
             font-family:
-                "Inter",
+                "Geist",
                 -apple-system,
                 BlinkMacSystemFont,
                 "Segoe UI",
@@ -45,7 +54,7 @@
         }
 
         /* ========================================
-           MAKEWAY HEADER
+           MAKEWAY HEADER — the app shell's brand row
            ======================================== */
 
         .makeway-header {
@@ -55,14 +64,15 @@
 
             display: flex;
             align-items: center;
+            justify-content: space-between;
 
             height: 64px;
             padding: 0 32px;
 
             background: var(--makeway-header);
-            color: #ffffff;
+            color: var(--makeway-text);
 
-            border-bottom: 1px solid #1e293b;
+            border-bottom: 1px solid var(--makeway-border);
         }
 
         .makeway-header .brand {
@@ -72,8 +82,8 @@
         }
 
         .makeway-header .logo {
-            width: 38px;
-            height: 38px;
+            width: 32px;
+            height: 32px;
             flex-shrink: 0;
         }
 
@@ -86,25 +96,24 @@
         .makeway-header h1 {
             margin: 0;
 
-            font-size: 20px;
+            font-size: 19px;
             line-height: 1;
-            font-weight: 800;
-            letter-spacing: -0.5px;
-        }
-
-        .makeway-header h1 .make {
-            color: #ffffff;
-        }
-
-        .makeway-header h1 .way {
-            color: #38bdf8;
+            font-weight: 600;
+            letter-spacing: -0.02em;
+            color: var(--makeway-text);
         }
 
         .makeway-header .tag {
             font-size: 11px;
             font-weight: 600;
-            letter-spacing: 1.5px;
-            color: #64748b;
+            letter-spacing: 0.08em;
+            color: var(--makeway-muted);
+        }
+
+        .makeway-header .page-label {
+            font-size: 13px;
+            font-weight: 500;
+            color: var(--makeway-muted);
         }
 
         /* Hide default Swagger header */
@@ -135,7 +144,7 @@
         }
 
         .swagger-ui .info .title small {
-            background: #38bdf8;
+            background: var(--makeway-brand);
             border-radius: 6px;
         }
 
@@ -143,6 +152,10 @@
         .swagger-ui .info li {
             color: var(--makeway-muted);
             font-size: 14px;
+        }
+
+        .swagger-ui .info a {
+            color: var(--makeway-brand);
         }
 
         /* Server / scheme bar */
@@ -155,7 +168,7 @@
             background: var(--makeway-surface);
 
             border: 1px solid var(--makeway-border);
-            border-radius: 8px;
+            border-radius: var(--makeway-radius);
 
             box-shadow: none;
         }
@@ -174,14 +187,14 @@
             margin-bottom: 10px;
 
             border: 1px solid var(--makeway-border);
-            border-radius: 8px;
+            border-radius: var(--makeway-radius);
 
             box-shadow:
                 0 1px 2px rgba(15, 23, 42, 0.05);
         }
 
         .swagger-ui .opblock .opblock-summary {
-            border-radius: 8px;
+            border-radius: var(--makeway-radius);
         }
 
         /* Filter */
@@ -197,7 +210,7 @@
 
         .swagger-ui section.models {
             border: 1px solid var(--makeway-border);
-            border-radius: 8px;
+            border-radius: var(--makeway-radius);
 
             background: var(--makeway-surface);
         }
@@ -219,95 +232,20 @@
     <header class="makeway-header">
 
         <div class="brand">
-
-            <!-- Logo mark only -->
-            <svg
-                class="logo"
-                xmlns="http://www.w3.org/2000/svg"
-                viewBox="0 0 200 200"
-                aria-label="Makeway"
-            >
-                <defs>
-                    <linearGradient
-                        id="pipelineGrad"
-                        x1="0%"
-                        y1="100%"
-                        x2="100%"
-                        y2="0%"
-                    >
-                        <stop offset="0%" stop-color="#06b6d4"/>
-                        <stop offset="25%" stop-color="#38bdf8"/>
-                        <stop offset="75%" stop-color="#818cf8"/>
-                        <stop offset="100%" stop-color="#a78bfa"/>
-                    </linearGradient>
-                </defs>
-
-                <path
-                    d="M60 140V50l40 50 40-50v90"
-                    stroke="url(#pipelineGrad)"
-                    stroke-width="16"
-                    fill="none"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                />
-
-                <circle
-                    cx="60"
-                    cy="140"
-                    r="10"
-                    fill="#0B1120"
-                    stroke="#06b6d4"
-                    stroke-width="4"
-                />
-
-                <circle
-                    cx="60"
-                    cy="50"
-                    r="10"
-                    fill="#0B1120"
-                    stroke="#38bdf8"
-                    stroke-width="4"
-                />
-
-                <circle
-                    cx="100"
-                    cy="100"
-                    r="10"
-                    fill="#0B1120"
-                    stroke="#818cf8"
-                    stroke-width="4"
-                />
-
-                <circle
-                    cx="140"
-                    cy="50"
-                    r="10"
-                    fill="#0B1120"
-                    stroke="#a78bfa"
-                    stroke-width="4"
-                />
-
-                <circle
-                    cx="140"
-                    cy="140"
-                    r="10"
-                    fill="#0B1120"
-                    stroke="#c084fc"
-                    stroke-width="4"
-                />
-            </svg>
+            <!-- Same mark as the frontend favicon (public/favicon.svg).
+                 ?v busts any cached pre-rebrand copy. -->
+            <img class="logo" src="/swagger/logo.svg?v=2" alt="Makeway">
 
             <div class="brand-text">
-                <h1>
-                    <span class="make">MAKE</span><span class="way">WAY</span>
-                </h1>
+                <h1>Makeway</h1>
 
                 <span class="tag">
                     INTERNAL DEVELOPER PLATFORM
                 </span>
             </div>
-
         </div>
+
+        <span class="page-label">API reference</span>
 
     </header>
 

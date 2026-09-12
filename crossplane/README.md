@@ -41,17 +41,21 @@ crossplane/
 │   ├── database/                 RelationalDatabase → RDS + SG + subnet group  ✅ done
 │   ├── queue/                    MessageQueue → SQS + DLQ           ✅ done
 │   └── notification/             NotificationTopic → SNS            ✅ done
-├── kustomization.yaml            the ArgoCD sync root
-└── root-application.yaml         the ArgoCD Application that watches this dir
+├── kustomization.yaml            the kustomize root (no environment-specific
+│                                 values — database placement arrives per claim)
+└── root-application.yaml         canonical ArgoCD Application — syncs this
+                                 directory (applied per cluster via its copy in
+                                 argocd/clusters/base/crossplane-application.yaml)
 ```
 
-## Bootstrap (local cluster)
+## Bootstrap (per environment cluster)
 
-The cluster runs locally (k3d/kind) with ArgoCD already watching this repo, so
-there is no EKS OIDC issuer and no IRSA. The AWS provider authenticates the same
-way the platform's service accounts do (docs/design/AWS-Service-Accounts.md):
-a dedicated IAM user, a scoped inline policy, static keys — never
-`Principal: "*"`.
+The platform is one cluster per environment (qa/uat/prod); run this once per
+cluster. The cluster runs locally (k3d/kind) with ArgoCD already watching this
+repo, so there is no EKS OIDC issuer and no IRSA. The AWS provider authenticates
+the same way the platform's service accounts do
+(docs/design/AWS-Service-Accounts.md): a dedicated IAM user, a scoped inline
+policy, static keys — never `Principal: "*"`.
 
 1. **Install Crossplane v2** (no Terraform involved — no EKS module exists yet).
    v2 is required: Compositions here use pipeline mode, and Claims no longer
@@ -97,10 +101,12 @@ a dedicated IAM user, a scoped inline policy, static keys — never
    XR instances until their provider (`provider-aws-s3` for storage) and the
    Function are installed.
 
-4. **Register the sync:**
+4. **Register the sync** — this Application is bundled into the per-cluster
+   bootstrap (`argocd/clusters/<env>/kustomization.yaml`), which also installs
+   ESO and that cluster's env-scoped ApplicationSet:
 
    ```sh
-   kubectl apply -f crossplane/root-application.yaml -n argocd
+   kubectl apply -k argocd/clusters/<env>   # <env> in qa/uat/prod — run on that cluster
    ```
 
    From here the four directories in `kustomization.yaml` are ArgoCD-managed.
@@ -144,14 +150,20 @@ a dedicated IAM user, a scoped inline policy, static keys — never
 - **DB instance class comes from a capacity map.** `Capacity` (1–10) is the only size knob
   on `RelationalDatabase`; the Composition maps it to a concrete class via a `map` patch
   transform. That table (in `compositions/database/composition.yaml`) is the single place
-  the platform team sizes databases — tune it there, no Lambda change.
+  the platform team sizes databases — tune it there, no Lambda change. Storage grows with
+  the same tier: a math patch sets `allocatedStorage` = 10 GB per capacity point
+  (tier 1 = 10GB, tier 5 = 50GB), so resizing the tier via an app update resizes storage.
 - **Queue redrive uses a `dlqArn` XR parameter.** SQS `redrivePolicy` is a JSON string
   with no `Ref` field, so the DLQ ARN is passed by the Lambda (deterministic
   `arn:aws:sqs:{region}:{account}:{queueName}-dlq`) and combined with `maxReceiveCount`.
-- **Platform-infra values are inline placeholders** (`__PLATFORM_VPC_ID__`,
-  `__PLATFORM_PRIVATE_SUBNET_*__`, `__PLATFORM_VPC_CIDR__`, `__CLAIM_*__`) in the database
-  Composition, same idiom as `provider-creds.yaml`. They get real values at bootstrap /
-  per environment; on managed EKS the ingress source becomes the worker-node SG.
+- **Platform placement is per-claim, not baked in.** The database XRD requires
+  `platformVpcId` + `platformSubnetIds` parameters and the Composition patches
+  them into the DBSubnetGroup / SecurityGroup bases. The Step-2 Lambda reads
+  them from the SSM parameter `/makeway/platform/vpc` (published by the platform
+  root's terraform — the single source of truth) at provision time, so a rebuilt
+  platform VPC propagates on the next provision with no repo edit. The
+  `__CLAIM_*__`-style placeholders in claim templates are the same idiom: the
+  Step-2 Lambda renders them at apply time.
 
 ## Lifecycle notes
 

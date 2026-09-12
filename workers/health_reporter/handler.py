@@ -4,9 +4,14 @@ Runs as a scheduled Lambda (EventBridge/CloudWatch every N minutes) and, in one
 pass, mirrors each **live ArgoCD Application** on the cluster into a
 ``DeploymentSetup`` row via the internal API:
 
-1. List ArgoCD Applications labeled ``managed-by: makeway`` (the ApplicationSet
-   in ``argocd/root-application.yaml`` labels one Application per ``{app}-{env}``
-   overlay with ``app`` / ``environment``/``managed-by``).
+1. List ArgoCD Applications labeled ``managed-by: makeway`` (the env-scoped
+   ApplicationSets under ``argocd/clusters/<env>/`` label one Application per
+   ``{app}-{env}`` overlay with ``app`` / ``environment`` / ``managed-by``).
+
+Note: this reporter sweeps the **single fallback cluster** configured via
+``KUBE_API_ENDPOINT``/``KUBE_TOKEN``. Per-environment health reporting (one
+cluster each) is a follow-up workstream — the control plane already scopes the
+deployment group by ``(app, env)``.
 2. For each live Application, resolve the services of its ``(app, env)`` group
    through the control plane (``GET /internal/deployment-groups/{app}/{env}``)
    and report one ``POST /internal/deployment-setup`` per resolved service.

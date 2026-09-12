@@ -2,18 +2,56 @@
 
 from core import get_logger
 from dto.configs.app_config import AppConfig
+from dto.configs.env_config import EnvConfig
 from dto.response.create_app import AppCreateResponse
 from dto.response.app_status import AppStatusResponse
+from dto.response.app_summary import AppSummaryResponse
 from database.models.user import User
 from dependencies.auth import get_current_user
+from dto.enums.environment import Environment
 from service.app_creation_service import AppCreationService
+from service.app_list_service import AppListService
 from service.app_status_service import AppStatusService
-from dependencies.app import get_app_creation_service, get_app_status_service
+from service.app_update_service import AppUpdateService
+from service.app_delete_service import AppDeleteService
+from dependencies.app import (
+    get_app_creation_service,
+    get_app_list_service,
+    get_app_status_service,
+    get_app_update_service,
+    get_app_delete_service,
+)
 
 
 logger = get_logger(__name__)
 
 router = APIRouter(prefix="/app", tags=["App Management"])
+
+
+@router.get(
+    "",
+    summary="List apps visible to the current user",
+    description=(
+        "Lists the apps owned by the teams the current user is an active "
+        "member of, most recently modified first. Read-only companion to "
+        "``GET /app/{app_name}/status`` — the dashboard grid's data source."
+    ),
+    response_model=list[AppSummaryResponse],
+    response_description="The caller's team-scoped app summaries.",
+)
+def list_apps(
+    current_user: User = Depends(get_current_user),
+    service: AppListService = Depends(get_app_list_service),
+) -> list[AppSummaryResponse]:
+    logger.info(
+        "App list requested",
+        extra={
+            "extra_fields": {
+                "user_id": getattr(current_user, "userId", None),
+            }
+        },
+    )
+    return service.list_apps(current_user=current_user)
 
 
 @router.post(
@@ -23,7 +61,7 @@ router = APIRouter(prefix="/app", tags=["App Management"])
         "Registers the desired state for a new application. Makeway reconciles the "
         "requested capabilities (services, database, storage, messaging) into real "
         "infrastructure asynchronously. The operation is "
-        "idempotent” retrying with the same payload never duplicates resources."
+        "idempotent — retrying with the same payload never duplicates resources."
     ),
     response_model=AppCreateResponse,
     response_description="The app creation request was accepted.",
@@ -53,6 +91,113 @@ def create_app(app_config: AppConfig,
         app_config=app_config,
         user=current_user,
         idempotency_key=idempotency_key,
+    )
+
+
+@router.post(
+    "/{app_name}/update",
+    summary="Update an existing app",
+    description=(
+        "Submits a per-environment delta for an existing app: a JSON list of "
+        "``{env, services?, capabilities?, remove_services?, "
+        "remove_capabilities?}`` entries. Each entry states the desired state "
+        "for the capabilities/services it mentions — a capability already "
+        "provisioned for that environment gets its config updated (e.g. a "
+        "larger database capacity tier), a new one is provisioned, a new "
+        "service is scaffolded and rolled out. Anything not mentioned stays "
+        "untouched. ``remove_services``/``remove_capabilities`` tear that item "
+        "down for the environment (removing a service that is a capability's "
+        "last accessor is rejected — name the capability for removal too, or "
+        "keep another accessor). Removals in ``prod`` require ``confirm=true``. "
+        "The operation is idempotent: retrying with the same Idempotency-Key "
+        "returns the original request/job identifiers. Rejected while another "
+        "request for the app is still reconciling."
+    ),
+    response_model=AppCreateResponse,
+    response_description="The app update request was accepted.",
+)
+def update_app(
+    app_name: str,
+    updates: list[EnvConfig],
+    confirm: bool = False,
+    idempotency_key: str = Header( ...,
+        alias="Idempotency-Key",
+        min_length=8,
+        max_length=255
+        ),
+    current_user: User = Depends(get_current_user),
+    service: AppUpdateService = Depends(
+        get_app_update_service
+        ),
+
+   ) -> AppCreateResponse:
+    logger.info(
+        "App update requested",
+        extra={
+            "extra_fields": {
+                "app_name": app_name,
+                "environments": [update.env.value for update in updates],
+            }
+        },
+    )
+    return service.submit(
+        app_name=app_name,
+        updates=updates,
+        user=current_user,
+        idempotency_key=idempotency_key,
+        confirm=confirm,
+    )
+
+
+@router.delete(
+    "/{app_name}/envs/{env}",
+    summary="Delete an app's environment",
+    description=(
+        "Tears down everything an app runs in one environment: its services, "
+        "the capabilities bound to them, their provisioned infrastructure "
+        "(Crossplane tears the AWS resources down), and the environment's "
+        "GitOps overlay. The desired-state rows are purged once the pipeline "
+        "reports SUCCESS — until then a failed run reconciles instead of "
+        "losing its teardown targets. If this is the app's last remaining "
+        "environment, its entire GitOps tree is removed but the app record and "
+        "services repository stay. Deleting ``prod`` requires ``confirm=true``."
+        " The operation is idempotent: retrying with the same Idempotency-Key "
+        "returns the original request/job identifiers. Rejected while another "
+        "request for the app is still reconciling."
+    ),
+    response_model=AppCreateResponse,
+    response_description="The app environment delete request was accepted.",
+)
+def delete_app_env(
+    app_name: str,
+    env: Environment,
+    confirm: bool = False,
+    idempotency_key: str = Header( ...,
+        alias="Idempotency-Key",
+        min_length=8,
+        max_length=255
+        ),
+    current_user: User = Depends(get_current_user),
+    service: AppDeleteService = Depends(
+        get_app_delete_service
+        ),
+
+   ) -> AppCreateResponse:
+    logger.info(
+        "App environment delete requested",
+        extra={
+            "extra_fields": {
+                "app_name": app_name,
+                "environment": env.value,
+            }
+        },
+    )
+    return service.submit(
+        app_name=app_name,
+        env=env,
+        user=current_user,
+        idempotency_key=idempotency_key,
+        confirm=confirm,
     )
 
 

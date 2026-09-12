@@ -18,6 +18,15 @@ class CapabilityAccessRepository:
 
         return self.session.exec(statement).all()
 
+    def get_by_service(self, service_id: int) -> list[CapabilityAccess]:
+        """Access bindings granted to one service (so a service teardown can
+        take its access edges with it)."""
+        statement = select(CapabilityAccess).where(
+            CapabilityAccess.serviceId == service_id
+        )
+
+        return self.session.exec(statement).all()
+
     def create(
         self,
         capability_access: CapabilityAccess,
@@ -31,3 +40,11 @@ class CapabilityAccessRepository:
         self.session.flush()
 
         return capability_access
+
+    def delete(self, capability_access: CapabilityAccess) -> None:
+        """
+        Remove one access binding within the calling unit of work. Flushed,
+        not committed — the caller owns the eventual ``commit``.
+        """
+        self.session.delete(capability_access)
+        self.session.flush()

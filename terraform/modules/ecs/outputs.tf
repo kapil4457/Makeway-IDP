@@ -13,6 +13,11 @@ output "service_name" {
   value       = aws_ecs_service.this.name
 }
 
+output "ui_service_name" {
+  description = "ECS service name running the platform UI (empty when no UI image is set)."
+  value       = local.ui_enabled ? aws_ecs_service.ui[0].name : ""
+}
+
 output "task_definition_arn" {
   description = "Task definition ARN."
   value       = aws_ecs_task_definition.this.arn

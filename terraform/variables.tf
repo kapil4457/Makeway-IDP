@@ -100,7 +100,7 @@ variable "db_password" {
   default     = "password"
 }
 
-# --- ALB (control-plane front door) ---
+# --- ALB (platform front door) ---
 
 variable "alb_name" {
   description = "Prefix for all ALB resources (load balancer, target group, security group)."
@@ -109,9 +109,9 @@ variable "alb_name" {
 }
 
 variable "alb_container_port" {
-  description = "Port the control-plane container listens on. The ALB forwards here and the app SG opens it from the ALB."
+  description = "Port the platform-UI container listens on. The ALB forwards here and the task SG opens it from the ALB."
   type        = number
-  default     = 8000
+  default     = 80
 }
 
 variable "alb_listeners" {
@@ -121,15 +121,27 @@ variable "alb_listeners" {
 }
 
 variable "alb_health_check_path" {
-  description = "Path the ALB probes to mark the control-plane tasks healthy."
+  description = "Path the ALB probes to mark the platform-UI tasks healthy."
   type        = string
-  default     = "/docs"
+  default     = "/"
 }
 
 variable "alb_health_check_matcher" {
   description = "HTTP status codes counted as healthy by the ALB health check."
   type        = string
   default     = "200,301,302,307,404"
+}
+
+variable "alb_target_group_name" {
+  description = "Name of the ALB TG (unique per region). Distinct from the load balancer name so a port change can recreate the group without a name collision."
+  type        = string
+  default     = "makeway-ui"
+}
+
+variable "frontend_image" {
+  description = "Platform-UI container image (nginx serving the built SPA). Empty string disables the ui_* resources in the ECS module."
+  type        = string
+  default     = "kapil4457/makeway-frontend:latest"
 }
 
 # --- App-creation workflow (Step 1 — GitHub Setup / GitOps) ---
@@ -148,7 +160,7 @@ variable "github_pat" {
 }
 
 variable "control_plane_url" {
-  description = "Base URL of the control-plane internal API, reachable from the workers (e.g. http://<alb-dns>.elb.amazonaws.com or the domain in front of the ALB)."
+  description = "Vestigial: workers now reach the control plane in-VPC via Cloud Map (http://control-plane.makeway.internal:8000), so this value is no longer consumed by any resource. Kept declared because CI still passes TF_VAR_control_plane_url (and the guards check it)."
   type        = string
 }
 
@@ -167,24 +179,28 @@ variable "makeway_platform_repo" {
 
 # --- App-creation workflow (Step 2 — Crossplane infra provisioning) ---
 #
-# Step 2 reaches the developer's local cluster (ArgoCD + Crossplane) through the
-# exposed kube-apiserver. The Crossplane ProviderConfig on that cluster and the
+# These three are the FALLBACK/default cluster access for the Step-2 Lambda
+# (per-environment endpoint/token/CA now come from the control-plane Cluster
+# registry — each env cluster is registered with its own exposed endpoint +
+# makeway-worker token). The Step-2 worker uses these values only when a
+# registered cluster row has no token; the health reporter uses them for its
+# single-cluster sweep. The Crossplane ProviderConfig on each cluster and the
 # Step-2 Lambda must target the same AWS account.
 
 variable "kube_api_endpoint" {
-  description = "Base URL of the (exposed) cluster kube-apiserver the Step-2 Lambda reaches, e.g. https://k8s.makeway.dev (pinggy/ngrok/ingress in front of the local cluster)."
+  description = "Fallback default cluster kube-apiserver URL the Step-2 Lambda reaches, e.g. https://k8s.makeway.dev (pinggy/ingress in front of the cluster). Per-env endpoints come from the Cluster registry at runtime."
   type        = string
 }
 
 variable "kube_ca_cert" {
-  description = "Base64 CA bundle of the exposed cluster (KUBE_CA_CERT). Empty disables TLS verification — only for a local dev cluster behind a tunnel."
+  description = "Fallback base64 CA bundle of the exposed cluster (KUBE_CA_CERT). Empty disables TLS verification — only for a local dev cluster behind a tunnel."
   type        = string
   sensitive   = true
   default     = ""
 }
 
 variable "kube_token" {
-  description = "Bearer token for a 'makeway-worker' ServiceAccount on the cluster, scoped to create Claims / read Secrets in app namespaces."
+  description = "Fallback bearer token for a 'makeway-worker' ServiceAccount on the default cluster. Per-cluster tokens are registered on each Cluster row."
   type        = string
   sensitive   = true
 }

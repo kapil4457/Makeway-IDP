@@ -1,10 +1,10 @@
 # `argocd/apps/__APP_NAME__` — GitOps configuration
 
 Managed by Makeway and stored in the Makeway platform repo itself — there is no
-separate per-app gitops repository. The `makeway-apps` ApplicationSet (see
-`argocd/root-application.yaml`) generates one ArgoCD Application per environment
-overlay in this folder, so merging changes to `main` rolls the app out on the
-cluster.
+separate per-app gitops repository. Each environment cluster runs its own
+env-scoped ApplicationSet (`argocd/clusters/<env>`) that generates one ArgoCD
+Application per environment overlay in this folder, so merging changes to `main`
+rolls the app out on that environment's cluster.
 
 Layout:
 

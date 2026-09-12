@@ -65,7 +65,7 @@ def _build_service(session: Session) -> InternalApiService:
     )
 
 
-def _seed() -> tuple[int, int, int, int, int, int]:
+def _seed() -> tuple[int, int, int, int, int, int, int]:
     """clusters + app + two services (qa/uat) + capability + request + job.
 
     Returns (request_id, job_id, svc_qa_id, svc_uat_id, capability_id,
@@ -75,12 +75,14 @@ def _seed() -> tuple[int, int, int, int, int, int]:
         cluster_qa = Cluster(
             clusterName="qa-cluster",
             kubeApiEndpoint="https://k8s.qa",
+            kubeToken="qa-token",
+            kubeCaCert="qa-ca",
             environment="qa",
         )
         cluster_uat = Cluster(
             clusterName="uat-cluster",
             kubeApiEndpoint="https://k8s.uat",
-            environment="uat",
+            environment="uat",  # no kubeToken/kubeCaCert — exercises the nullable path
         )
         session.add(cluster_qa)
         session.add(cluster_uat)
@@ -124,6 +126,25 @@ def _seed() -> tuple[int, int, int, int, int, int]:
         session.add(infra)
         session.flush()
 
+        # Storage capability scoped to the *uat* service — its cluster row has no
+        # kubeToken/kubeCaCert, so the worker falls back to the Lambda env vars.
+        cap_storage = Capability(capabilityType="storage", status=CapabilityStatus.PENDING)
+        session.add(cap_storage)
+        session.flush()
+
+        cap_access_uat = CapabilityAccess(
+            capabilityId=cap_storage.capabilityId, serviceId=svc_uat.svcId
+        )
+        session.add(cap_access_uat)
+        session.flush()
+
+        infra_storage = InfraRequirement(
+            capabilityId=cap_storage.capabilityId,
+            config={"type": "storage", "name": "docs", "capacity": 1},
+        )
+        session.add(infra_storage)
+        session.flush()
+
         req = Request(
             idempotencyKey="key-123",
             requestType=RequestType.CREATE_APP,
@@ -146,11 +167,12 @@ def _seed() -> tuple[int, int, int, int, int, int]:
             svc_uat.svcId,
             cap.capabilityId,
             infra.infraRequirementId,
+            cap_storage.capabilityId,
         )
 
 
 def test_details_and_status_callbacks() -> None:
-    request_id, job_id, svc_qa_id, svc_uat_id, cap_id, _infra_id = _seed()
+    request_id, job_id, svc_qa_id, svc_uat_id, cap_id, _infra_id, _cap_storage_id = _seed()
 
     with Session(db_engine.engine) as session:
         api = _build_service(session)
@@ -163,14 +185,28 @@ def test_details_and_status_callbacks() -> None:
         assert details["job"]["jobId"] == job_id
         assert details["job"]["status"] == "pending"
 
-        # Provision-infra worker gets each capability's config + target namespace.
+        # Provision-infra worker gets each capability's config + target namespace
+        # and the *cluster* it belongs to (endpoint + token + CA from the same
+        # Cluster row that resolves the environment).
         caps = details["capabilities"]
-        assert [c["capabilityType"] for c in caps] == ["rel_database"]
+        assert [c["capabilityType"] for c in caps] == ["rel_database", "storage"]
         assert caps[0]["capabilityId"] == cap_id
         assert caps[0]["config"]["name"] == "orders"
         assert caps[0]["environment"] == "qa"
         assert caps[0]["namespace"] == "order-service-qa"
         assert caps[0]["accessToServices"] == ["orders-api-qa"]
+        assert caps[0]["kubeApiEndpoint"] == "https://k8s.qa"
+        assert caps[0]["kubeToken"] == "qa-token"
+        assert caps[0]["kubeCaCert"] == "qa-ca"
+
+        # The token-less cluster row still emits the endpoint, with None creds —
+        # the worker falls back to its Lambda env vars.
+        assert caps[1]["environment"] == "uat"
+        assert caps[1]["namespace"] == "order-service-uat"
+        assert caps[1]["accessToServices"] == ["orders-api-uat"]
+        assert caps[1]["kubeApiEndpoint"] == "https://k8s.uat"
+        assert caps[1]["kubeToken"] is None
+        assert caps[1]["kubeCaCert"] is None
 
         # In-progress callback with the execution ARN.
         api.update_request_status(
@@ -218,7 +254,7 @@ def test_details_and_status_callbacks() -> None:
 
 
 def test_failure_rolls_up_request_and_records_error() -> None:
-    request_id, job_id, _, _, _, _ = _seed()
+    request_id, job_id, _, _, _, _, _ = _seed()
 
     with Session(db_engine.engine) as session:
         api = _build_service(session)
@@ -233,7 +269,7 @@ def test_failure_rolls_up_request_and_records_error() -> None:
 
 
 def test_capability_outputs_written_from_step2_callback() -> None:
-    request_id, job_id, _svc_qa, _svc_uat, capability_id, infra_id = _seed()
+    request_id, job_id, _svc_qa, _svc_uat, capability_id, infra_id, _cap_storage_id = _seed()
 
     with Session(db_engine.engine) as session:
         api = _build_service(session)
@@ -308,7 +344,7 @@ def test_capability_outputs_written_from_step2_callback() -> None:
 
 
 def test_negative_paths() -> None:
-    request_id, job_id, _, _, _, _ = _seed()
+    request_id, job_id, _, _, _, _, _ = _seed()
 
     with Session(db_engine.engine) as session:
         api = _build_service(session)

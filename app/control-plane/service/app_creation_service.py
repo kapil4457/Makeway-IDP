@@ -1,5 +1,6 @@
 from sqlmodel import Session
 
+from core import get_logger
 from database.models.job import Job
 from database.models.request import Request
 from database.models.user import User
@@ -28,6 +29,9 @@ from exceptions.base import InvalidRequestException
 from service.env_constraints import get_constraints
 from dto.enums.capability_status import CapabilityStatus
 from dto.enums.capability_types import CapabilityType
+
+
+logger = get_logger(__name__)
 
 
 class AppCreationService:
@@ -110,6 +114,8 @@ class AppCreationService:
                     message=f"No cluster is registered for environment '{env.value}'."
                 )
 
+            env_services: list[Service] = []
+
             for service in services:
                 service_name = service.service_name or service.service_type.value
                 new_service = Service(
@@ -120,7 +126,7 @@ class AppCreationService:
                     serviceType=service.service_type,
                     svcName=f"{service_name}-{env.value}"
                 )
-                self.serviceRepository.create(new_service)
+                env_services.append(self.serviceRepository.create(new_service))
 
             for capability in capabilities:
                 config = capability.config
@@ -140,16 +146,26 @@ class AppCreationService:
                 )
                 self.infraRequirementRepository.create(new_infrastructure_requirement)
 
-                for service_name in capability.access_to:
-                    service_obj = self.serviceRepository.get_by_name(
-                        f"{service_name}-{env.value}"
-                    )
-                    if service_obj is None:
-                        raise InvalidRequestException(
-                            message=f"Service '{service_name}' does not exist in "
-                                    f"environment '{env.value}'."
+                if capability.access_to:
+                    bound_services: list[Service] = []
+                    for service_name in capability.access_to:
+                        service_obj = self.serviceRepository.get_by_name(
+                            f"{service_name}-{env.value}"
                         )
+                        if service_obj is None:
+                            raise InvalidRequestException(
+                                message=f"Service '{service_name}' does not exist in "
+                                        f"environment '{env.value}'."
+                            )
+                        bound_services.append(service_obj)
+                else:
+                    # Empty access_to means every service in this environment
+                    # (dto/configs/capability.py). Without edges the capability
+                    # would be invisible to the status read, which scopes
+                    # capabilities through their access bindings.
+                    bound_services = env_services
 
+                for service_obj in bound_services:
                     capability_access = CapabilityAccess(
                         capabilityId=new_capability.capabilityId,
                         serviceId=service_obj.svcId,
@@ -184,11 +200,21 @@ class AppCreationService:
         #endregion
 
         #region Insert the request into the queue
-        # Only enqueue.
-        self.queue.publish(
-            request_id=request.requestId,
-            job_id=job.jobId,
-        )
+        # Only enqueue. A failed publish must not fail the request: the unit of
+        # work is already committed and durable, and a retry with the same
+        # Idempotency-Key re-acknowledges the existing request.
+        try:
+            self.queue.publish(
+                request_id=request.requestId,
+                job_id=job.jobId,
+            )
+        except Exception:
+            logger.error(
+                "SQS publish failed for a committed app-creation request — "
+                "the consumer will not pick it up until republished",
+                extra={"request_id": request.requestId, "job_id": job.jobId},
+                exc_info=True,
+            )
         #endregion
 
         return AppCreateResponse(
@@ -243,6 +269,17 @@ class AppCreationService:
             if not env_cfg.env:
                 raise InvalidRequestException(
                     message="Environment must be specified for each env_config entry."
+                )
+
+            # Removal lists and access patches are update-flow delta concepts —
+            # creation has nothing to remove or re-bind, so a create carrying
+            # one is a caller mistake.
+            if (env_cfg.remove_services or env_cfg.remove_capabilities
+                    or env_cfg.update_access):
+                raise InvalidRequestException(
+                    message="Removal lists (remove_services / remove_capabilities) "
+                            "and access patches (update_access) are not valid "
+                            "on app creation."
                 )
 
             # Service types are validated by the DTO layer (Pydantic enum field),

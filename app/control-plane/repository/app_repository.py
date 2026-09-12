@@ -22,6 +22,24 @@ class AppRepository:
 
         return self.session.exec(apps).first()
 
+    def list_by_team_ids(self, team_ids: list[int]) -> list[App]:
+        """
+        Apps owned by any of the given teams, most recently modified first.
+
+        Read-only. An empty ``team_ids`` short-circuits to ``[]`` so callers
+        without team membership never trigger a broad scan.
+        """
+        if not team_ids:
+            return []
+
+        statement = (
+            select(App)
+            .where(App.teamId.in_(team_ids))
+            .order_by(App.modifiedAt.desc())
+        )
+
+        return list(self.session.exec(statement).all())
+
     def create(self, app: App) -> App:
         """
         Persist a new app within the calling unit of work.

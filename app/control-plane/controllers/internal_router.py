@@ -5,11 +5,14 @@ Not part of the user-facing API surface; every route is guarded by the
 Lambda worker calls:
 
 - ``GET /internal/requests/{request_id}`` — request snapshot (app, services,
-  environments, job) before doing work.
+  environments, job, per-capability cluster access) before doing work.
 - ``POST /internal/requests/{request_id}/status`` — report the outcome and the
   repo URLs / per-service folder paths it produced.
 - ``POST /internal/deployment-setup`` — record a service's ArgoCD rollout
   state (the deploy reporter) so the status endpoint can show real health.
+- ``GET /internal/clusters/{cluster_name}`` — redacted cluster registration
+  info (endpoint + presence flags, never the raw token/CA) for bootstrap
+  verification.
 """
 from fastapi import APIRouter, Depends
 
@@ -97,3 +100,18 @@ def record_deployment_setup(
     service: InternalApiService = Depends(get_internal_api_service),
 ) -> dict:
     return service.record_deployment_setup(payload)
+
+
+@router.get(
+    "/clusters/{cluster_name}",
+    summary="Get redacted cluster registration info",
+    description=(
+        "Verification surface for cluster bootstrap: returns the registered "
+        "endpoint and whether token/CA are set, never the credential values."
+    ),
+)
+def get_cluster_details(
+    cluster_name: str,
+    service: InternalApiService = Depends(get_internal_api_service),
+) -> dict:
+    return service.get_cluster_details(cluster_name)

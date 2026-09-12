@@ -16,7 +16,64 @@ from repository.deployment_setup_repository import DeploymentSetupRepository
 
 from service.app_creation_queue import AppCreationQueue
 from service.app_creation_service import AppCreationService
+from service.app_list_service import AppListService
 from service.app_status_service import AppStatusService
+from service.app_update_service import AppUpdateService
+from service.app_delete_service import AppDeleteService
+
+
+def get_app_update_service(
+    session: Session = Depends(get_database_session),
+) -> AppUpdateService:
+
+    request_repository = RequestRepository(session)
+    app_repository = AppRepository(session)
+    team_member_repository = TeamMemberRepository(session)
+    cluster_repository = ClusterRepository(session)
+    service_repository = ServiceRepository(session)
+    capability_repository = CapabilityRepository(session)
+    infra_requirement_repository = InfraRequirementRepository(session)
+    capability_access_repository = CapabilityAccessRepository(session)
+    job_repository = JobRepository(session)
+    queue = AppCreationQueue()
+
+    return AppUpdateService(
+        session=session,
+        queue=queue,
+        teamMemberRepository=team_member_repository,
+        appRepository=app_repository,
+        clusterRepository=cluster_repository,
+        serviceRepository=service_repository,
+        capabilityRepository=capability_repository,
+        infraRequirementRepository=infra_requirement_repository,
+        capabilityAccessRepository=capability_access_repository,
+        requestRepository=request_repository,
+        jobRepository=job_repository,
+    )
+
+
+def get_app_delete_service(
+    session: Session = Depends(get_database_session),
+) -> AppDeleteService:
+
+    app_repository = AppRepository(session)
+    team_member_repository = TeamMemberRepository(session)
+    cluster_repository = ClusterRepository(session)
+    service_repository = ServiceRepository(session)
+    request_repository = RequestRepository(session)
+    job_repository = JobRepository(session)
+    queue = AppCreationQueue()
+
+    return AppDeleteService(
+        session=session,
+        queue=queue,
+        teamMemberRepository=team_member_repository,
+        appRepository=app_repository,
+        clusterRepository=cluster_repository,
+        serviceRepository=service_repository,
+        requestRepository=request_repository,
+        jobRepository=job_repository,
+    )
 
 
 def get_app_creation_service(
@@ -79,7 +136,24 @@ def get_app_status_service(
     )
 
 
+def get_team_member_repository(
+    session: Session = Depends(get_database_session),
+) -> TeamMemberRepository:
+    return TeamMemberRepository(session)
+
+
 def get_app_repository(
     session: Session = Depends(get_database_session),
 ) -> AppRepository:
     return AppRepository(session)
+
+
+def get_app_list_service(
+    session: Session = Depends(get_database_session),
+) -> AppListService:
+
+    return AppListService(
+        session=session,
+        appRepository=AppRepository(session),
+        teamMemberRepository=TeamMemberRepository(session),
+    )

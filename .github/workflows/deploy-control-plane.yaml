@@ -52,6 +52,20 @@ jobs:
       - name: Terraform Init
         run: terraform init -input=false
 
+      - name: Pin the platform-UI image (deploy only the control plane)
+        id: pin
+        run: |
+          set -euo pipefail
+          CLUSTER="$(terraform output -raw ecs_cluster_name 2>/dev/null || echo makeway)"
+          UI_CURRENT="$(aws ecs describe-task-definition --task-definition "$CLUSTER-ui" \
+            --query 'taskDefinition.containerDefinitions[?name==`ui`].image' --output text 2>/dev/null || true)"
+          if [ -z "$UI_CURRENT" ] || [ "$UI_CURRENT" = "None" ]; then
+            # Family doesn't exist yet (first-ever deploy) — fall back to the
+            # image the platform-UI workflow deploys by default.
+            UI_CURRENT="${{ vars.DOCKERHUB_FRONTEND_IMAGE || 'kapil4457/makeway-frontend' }}:latest"
+          fi
+          echo "ui_image=$UI_CURRENT" >> "$GITHUB_OUTPUT"
+
       - name: Require required TF_VAR inputs
         env:
           MAKEWAY_CONTROL_PLANE_URL: ${{ vars.MAKEWAY_CONTROL_PLANE_URL }}
@@ -70,6 +84,7 @@ jobs:
         run: terraform plan -input=false -out=tfplan -no-color
         env:
           TF_VAR_ecs_image: ${{ steps.image.outputs.image }}
+          TF_VAR_frontend_image: ${{ steps.pin.outputs.ui_image }}
           TF_VAR_control_plane_url: ${{ vars.MAKEWAY_CONTROL_PLANE_URL }}
           TF_VAR_kube_api_endpoint: ${{ vars.MAKEWAY_KUBE_API_ENDPOINT }}
           TF_VAR_kube_token: ${{ secrets.MAKEWAY_KUBE_TOKEN }}
@@ -82,6 +97,7 @@ jobs:
         run: terraform apply -input=false -auto-approve tfplan
         env:
           TF_VAR_ecs_image: ${{ steps.image.outputs.image }}
+          TF_VAR_frontend_image: ${{ steps.pin.outputs.ui_image }}
           TF_VAR_control_plane_url: ${{ vars.MAKEWAY_CONTROL_PLANE_URL }}
           TF_VAR_kube_api_endpoint: ${{ vars.MAKEWAY_KUBE_API_ENDPOINT }}
           TF_VAR_kube_token: ${{ secrets.MAKEWAY_KUBE_TOKEN }}

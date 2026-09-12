@@ -14,9 +14,10 @@
 # Each worker reports FAILED itself and then raises, so the state machine only
 # drives the invocation and turns the raise into an execution failure.
 #
-# Step 2 reaches the developer's local cluster (ArgoCD + Crossplane) through
-# KUBE_API_ENDPOINT; the Crossplane ProviderConfig on that cluster and these
-# Lambdas must target the same AWS account.
+# Step 2 reaches each environment's cluster (ArgoCD + Crossplane) through the
+# exposed kube-apiserver, resolved per capability from the Cluster registry;
+# KUBE_* env vars are the fallback default cluster. The Crossplane ProviderConfig
+# on each cluster and these Lambdas must target the same AWS account.
 
 # --- Lambda packages ----------------------------------------------------------
 # Both handlers resolve templates/ claim_templates/ relative to __file__, so each
@@ -90,6 +91,12 @@ resource "aws_iam_role_policy_attachment" "step1_logs" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
 }
 
+# VPC-attached Lambdas create/delete their own ENIs (Hyperplane) on invoke.
+resource "aws_iam_role_policy_attachment" "step1_vpc" {
+  role       = aws_iam_role.step1.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole"
+}
+
 # --- Step-1 Lambda -------------------------------------------------------------
 
 resource "aws_lambda_function" "step1" {
@@ -102,6 +109,13 @@ resource "aws_lambda_function" "step1" {
 
   timeout     = var.lambda_timeout_seconds
   memory_size = var.lambda_memory_mb
+
+  # In-VPC: the control plane is fully private (Cloud Map resolves in-VPC only)
+  # and the workers report to its internal API; NAT gives GitHub/AWS egress.
+  vpc_config {
+    subnet_ids         = var.subnet_ids
+    security_group_ids = var.security_group_ids
+  }
 
   environment {
     variables = {
@@ -173,6 +187,14 @@ data "aws_iam_policy_document" "step2_permissions" {
     actions   = ["sts:GetCallerIdentity"]
     resources = ["*"]
   }
+
+  # Platform VPC facts for claim rendering (vpcId, subnetIds, cidr) — published
+  # by the platform root, read per apply (cached per warm container).
+  statement {
+    sid       = "ReadPlatformVpcFacts"
+    actions   = ["ssm:GetParameter"]
+    resources = ["arn:aws:ssm:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:parameter${var.platform_vpc_parameter_name}"]
+  }
 }
 
 resource "aws_iam_policy" "step2" {
@@ -190,6 +212,13 @@ resource "aws_iam_role_policy_attachment" "step2_logs" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
 }
 
+# Same VPC attachment as Step 1 (private control plane + NAT egress for the
+# kube endpoints and AWS APIs).
+resource "aws_iam_role_policy_attachment" "step2_vpc" {
+  role       = aws_iam_role.step2.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole"
+}
+
 # --- Step-2 Lambda -------------------------------------------------------------
 
 resource "aws_lambda_function" "step2" {
@@ -203,17 +232,26 @@ resource "aws_lambda_function" "step2" {
   timeout     = var.step2_timeout_seconds
   memory_size = var.step2_memory_mb
 
+  # In-VPC: same reason as Step 1 — private control plane + NAT egress.
+  vpc_config {
+    subnet_ids         = var.subnet_ids
+    security_group_ids = var.security_group_ids
+  }
+
   environment {
     variables = {
-      CONTROL_PLANE_URL       = var.control_plane_url
-      INTERNAL_API_KEY        = var.internal_api_key
-      GITHUB_OWNER            = var.github_owner
-      GITHUB_TOKEN_SECRET_ID  = aws_secretsmanager_secret.github_pat.name
-      MAKEWAY_PLATFORM_REPO   = var.makeway_platform_repo
+      CONTROL_PLANE_URL      = var.control_plane_url
+      INTERNAL_API_KEY       = var.internal_api_key
+      GITHUB_OWNER           = var.github_owner
+      GITHUB_TOKEN_SECRET_ID = aws_secretsmanager_secret.github_pat.name
+      MAKEWAY_PLATFORM_REPO  = var.makeway_platform_repo
+      # Fallback cluster only — per-env endpoint/token/CA come from the
+      # Cluster registry via get_request_details.
       KUBE_API_ENDPOINT       = var.kube_api_endpoint
       KUBE_CA_CERT            = var.kube_ca_cert
       KUBE_TOKEN              = var.kube_token
       SECRETS_PREFIX          = var.secrets_prefix
+      PLATFORM_VPC_PARAMETER  = var.platform_vpc_parameter_name
       RDS_PUBLICLY_ACCESSIBLE = tostring(var.rds_publicly_accessible)
       RDS_INGRESS_CIDR        = var.rds_ingress_cidr
     }

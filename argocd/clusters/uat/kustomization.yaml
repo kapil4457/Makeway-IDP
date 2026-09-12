@@ -1,0 +1,12 @@
+# Per-cluster bootstrap bundle for the UAT cluster (applied once by hand):
+#
+#   kubectl apply -k argocd/clusters/uat
+#
+# Same contents as argocd/clusters/qa/kustomization.yaml — makes this cluster's
+# ArgoCD manage Crossplane, ESO (install + store), and the uat-scoped
+# ApplicationSet. See the qa kustomization for the full rationale.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../base
+  - env-application-set.yaml

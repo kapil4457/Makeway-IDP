@@ -28,3 +28,10 @@ spec:
     region: __REGION__
     publiclyAccessible: __PUBLICLY_ACCESSIBLE__
     ingressSourceCidr: __INGRESS_CIDR__
+    # Platform placement facts — read by the worker from SSM at provision time
+    # (never committed here). The Composition patches them into the DBSubnetGroup
+    # and SecurityGroup bases.
+    platformVpcId: __PLATFORM_VPC_ID__
+    platformSubnetIds:
+      - __PLATFORM_PRIVATE_SUBNET_1__
+      - __PLATFORM_PRIVATE_SUBNET_2__

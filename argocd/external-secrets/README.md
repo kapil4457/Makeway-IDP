@@ -5,8 +5,11 @@ Crossplane writes into each Claim's connection Secret are mirrored into AWS
 Secrets Manager by the Step-2 worker, which also commits an
 `ExternalSecret` per capability into the env overlay
 (`argocd/apps/<app>/envs/<env>/external-secrets/`). External Secrets Operator
-(ESO) materializes the matching `K8s Secret` into the app namespace, and the
-Deployment references it via `envFrom` / `valueFrom`.
+(ESO) materializes the matching `K8s Secret` into the app namespace as `{slug}`.
+The Step-2 extract phase also commits an injection patch
+(`inject/{slug}-env.yaml`, registered in the env kustomization `patches:`) that
+wires that Secret into each `accessTo` service's Deployment as
+`MAKEWAY_{SLUG}_{KEY}` env vars (`env[].valueFrom.secretKeyRef`).
 
 ```mermaid
 flowchart LR
@@ -18,33 +21,35 @@ flowchart LR
     SM --> ESO
 ```
 
-## Cluster-side setup (once)
+## Cluster-side setup (once per environment cluster)
 
-1. **Install ESO** (ArgoCD-managed Helm chart — same pattern Crossplane uses):
+One cluster per environment (qa/uat/prod); run this on **each** cluster's own
+ArgoCD:
+
+1. **Install ESO + the store + that cluster's env-scoped ApplicationSet** — all
+   bundled in the per-cluster bootstrap root:
 
    ```bash
-   kubectl apply -n argocd -f argocd/external-secrets/eso-install-application.yaml
+   kubectl apply -k argocd/clusters/<env>   # <env> in qa/uat/prod — run on that cluster
    ```
 
-2. **Seed the store credentials** (bootstrap-only, like
-   `crossplane/secrets/`). Copy `aws-credentials.example.yaml` to
-   `aws-credentials.yaml`, fill in static IAM keys scoped to
-   `secretsmanager:GetSecretValue` on `makeway/*`, and apply — **not** tracked
-   by git and **not** in the kustomization:
+   (`eso-install-application.yaml` is a managed Helm chart install, same pattern
+   Crossplane uses; `store-application.yaml` is the kustomize root for this folder.)
+
+2. **Seed the store credentials** (bootstrap-only, like `crossplane/secrets/`,
+   gitignored). Copy `aws-credentials.example.yaml` to `aws-credentials.yaml`,
+   fill in static IAM keys scoped to `secretsmanager:GetSecretValue` on
+   `makeway/*`, and apply on each cluster — **not** tracked by git and **not**
+   in the kustomization:
 
    ```bash
    kubectl apply -n external-secrets -f aws-credentials.yaml
    ```
 
-3. **Apply the store** (ArgoCD-managed kustomize root):
-
-   ```bash
-   kubectl apply -n argocd -f argocd/external-secrets/store-application.yaml
-   ```
-
-The per-app ExternalSecrets need no extra setup: the existing `makeway-apps`
-ApplicationSet (root-application.yaml) globs `argocd/apps/*/envs/*`, which now
-includes the `external-secrets/` folder the Step-2 extract phase commits to.
+The per-app ExternalSecrets need no extra setup: each env-scoped ApplicationSet
+(`argocd/clusters/<env>/`) globs `argocd/apps/*/envs/<env>`, which includes the
+`external-secrets/` folder the Step-2 extract phase commits to — each cluster
+only materializes its own env's secrets.
 
 ## Migrating to managed EKS
 

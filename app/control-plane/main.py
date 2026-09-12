@@ -1,8 +1,10 @@
-﻿import uuid
+﻿import os
+import uuid
 from dotenv import load_dotenv
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
 from database.db_engine import  dispose_engine
 
 from controllers.app_router import router as app_router
@@ -26,7 +28,7 @@ into real infrastructure through Terraform, GitOps, and Vault.
 
 ### Conventions
 
-* All provisioning operations are **idempotent** â€” retries never create
+* All provisioning operations are **idempotent** retries never create
   duplicate resources.
 * Desired state is the source of truth; workers reconcile it into actual
   infrastructure.
@@ -86,6 +88,26 @@ async def request_id_middleware(request: Request, call_next):
     response = await call_next(request)
     response.headers["X-Request-ID"] = request_id
     return response
+
+
+# CORS must be the outermost middleware (Starlette runs the last-added one
+# first) so browser preflights are answered before AuthInterceptor sees them.
+# Origins come from ALLOWED_ORIGINS (comma-separated) so the frontend can be
+# pointed at any deployment without a code change.
+ALLOWED_ORIGINS = [
+    origin.strip()
+    for origin in os.environ.get("ALLOWED_ORIGINS", "http://localhost:5173").split(",")
+    if origin.strip()
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=ALLOWED_ORIGINS,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["Authorization", "Content-Type", "Idempotency-Key", "X-Request-ID"],
+    expose_headers=["X-Request-ID"],
+)
 
 
 app.include_router(app_router)

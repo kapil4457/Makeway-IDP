@@ -236,8 +236,21 @@ resource "aws_ecs_service" "this" {
     weight            = 1
   }
 
+  # Cloud Map service discovery: registers each task ENI's IP as an A record
+  # (MULTIVALUE) so in-cluster callers reach the tasks by DNS name even as IPs
+  # churn across deployments. The platform-UI nginx resolves this name per
+  # request to proxy the API paths (the ALB fronts the UI, not this service).
+  dynamic "service_registries" {
+    for_each = var.service_registry_arn == null ? [] : [var.service_registry_arn]
+    content {
+      registry_arn = service_registries.value
+      port         = var.container_port
+    }
+  }
+
   # Registers each task ENI's IP into the ALB target group — this is what lets
-  # the load balancer actually reach the tasks.
+  # the load balancer actually reach the tasks. The control plane runs fully
+  # private (null), with the ALB fronting the UI task below.
   dynamic "load_balancer" {
     for_each = var.target_group_arn == null ? [] : [var.target_group_arn]
     content {
@@ -257,5 +270,88 @@ resource "aws_ecs_service" "this" {
     aws_ecs_cluster_capacity_providers.this,
     aws_iam_role_policy_attachment.execution,
     aws_iam_role_policy_attachment.task,
+  ]
+}
+
+# --- Platform UI: a second task definition + service in the SAME cluster ----
+# Static SPA served by nginx, which also reverse-proxies the control-plane API
+# paths (see app/frontend/nginx.conf). Disabled entirely while
+# ui_container_image is empty, so callers that don't pass it see zero diff.
+locals {
+  ui_enabled = var.ui_container_image != ""
+}
+
+resource "aws_ecs_task_definition" "ui" {
+  count = local.ui_enabled ? 1 : 0
+
+  family                   = "${var.name}-ui"
+  network_mode             = "awsvpc"
+  requires_compatibilities = ["EC2"]
+  # nginx makes no AWS calls, so the execution role doubles as the task role
+  # (execution covers awslogs + the image pull — the only AWS the task does).
+  execution_role_arn = aws_iam_role.execution.arn
+  task_role_arn      = aws_iam_role.execution.arn
+
+  container_definitions = jsonencode([
+    {
+      name              = "ui"
+      image             = var.ui_container_image
+      essential         = true
+      memoryReservation = var.ui_container_memory_reservation
+
+      portMappings = [
+        {
+          containerPort = var.ui_container_port
+          protocol      = "tcp"
+        }
+      ]
+
+      logConfiguration = {
+        logDriver = "awslogs"
+        options = {
+          "awslogs-group"         = aws_cloudwatch_log_group.this.name
+          "awslogs-region"        = var.region
+          "awslogs-stream-prefix" = "ui"
+        }
+      }
+    }
+  ])
+}
+
+resource "aws_ecs_service" "ui" {
+  count = local.ui_enabled ? 1 : 0
+
+  name            = var.ui_service_name
+  cluster         = aws_ecs_cluster.this.id
+  task_definition = aws_ecs_task_definition.ui[count.index].arn
+  desired_count   = var.ui_desired_count
+  force_delete    = true
+
+  capacity_provider_strategy {
+    capacity_provider = aws_ecs_capacity_provider.this.name
+    weight            = 1
+  }
+
+  # The UI tasks register into the ALB target group — this is what lets the
+  # load balancer reach them (the ALB fronts the UI, not the control plane).
+  load_balancer {
+    target_group_arn = var.ui_target_group_arn
+    container_name   = "ui"
+    container_port   = var.ui_container_port
+  }
+
+  # nginx is up in under a second, but give the ALB health check a grace
+  # period so the first probe of a fresh task doesn't flap it unhealthy.
+  health_check_grace_period_seconds = 15
+
+  network_configuration {
+    subnets          = var.subnet_ids
+    security_groups  = [aws_security_group.app.id]
+    assign_public_ip = false
+  }
+
+  depends_on = [
+    aws_ecs_cluster_capacity_providers.this,
+    aws_iam_role_policy_attachment.execution,
   ]
 }

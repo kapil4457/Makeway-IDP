@@ -27,8 +27,18 @@ variable "github_token_secret_name" {
 }
 
 variable "control_plane_url" {
-  description = "Base URL of the control-plane internal API, reachable from the Step-1 Lambda (e.g. the ALB DNS name or a domain in front of it)."
+  description = "Base URL of the control-plane internal API, reachable from the worker Lambdas. The control plane is fully private, so this is the in-VPC Cloud Map URL (http://control-plane.makeway.internal:8000) — requires the VPC attachment below."
   type        = string
+}
+
+variable "subnet_ids" {
+  description = "Private subnet IDs for the worker Lambdas' ENIs. The workers must run in-VPC to reach the private control plane (and resolve its Cloud Map name); NAT provides their egress."
+  type        = list(string)
+}
+
+variable "security_group_ids" {
+  description = "Security groups for the worker Lambdas' ENIs. Admitted to the control-plane task SG on the API port by the root's api_from_workers rule."
+  type        = list(string)
 }
 
 variable "internal_api_key" {
@@ -87,19 +97,19 @@ variable "step2_memory_mb" {
 }
 
 variable "kube_api_endpoint" {
-  description = "Base URL of the (exposed) cluster kube-apiserver the Step-2 Lambda reaches, e.g. https://k8s.makeway.dev (pinggy/ngrok/ingress in front of the local cluster)."
+  description = "Fallback default cluster kube-apiserver URL the Step-2 Lambda reaches, e.g. https://k8s.makeway.dev (pinggy/ingress in front of the cluster). Per-env endpoints come from the Cluster registry at runtime."
   type        = string
 }
 
 variable "kube_ca_cert" {
-  description = "Base64 CA bundle of the exposed cluster (KUBE_CA_CERT). Empty disables TLS verification — required for a raw-TCP tunnel (e.g. pinggy), where the apiserver's self-signed cert can't match the tunnel hostname."
+  description = "Fallback base64 CA bundle of the exposed cluster (KUBE_CA_CERT). Empty disables TLS verification — required for a raw-TCP tunnel (e.g. pinggy), where the apiserver's self-signed cert can't match the tunnel hostname."
   type        = string
   default     = ""
   sensitive   = true
 }
 
 variable "kube_token" {
-  description = "Bearer token for a 'makeway-worker' ServiceAccount on the cluster, scoped to create Claims / read Secrets in app namespaces."
+  description = "Fallback bearer token for a 'makeway-worker' ServiceAccount on the default cluster. Per-cluster tokens are registered on each Cluster row and used per capability."
   type        = string
   sensitive   = true
 }
@@ -108,6 +118,11 @@ variable "secrets_prefix" {
   description = "Prefix (no leading/trailing slash) of Secrets Manager secret names the Step-2 Lambda writes, e.g. 'makeway'. Secrets are named {prefix}/{app}/{env}/{capability-slug}."
   type        = string
   default     = "makeway"
+}
+
+variable "platform_vpc_parameter_name" {
+  description = "SSM parameter (name, leading slash) holding the platform VPC facts JSON ({vpcId, subnetIds, cidr}) the Step-2 Lambda reads to fill database claims. Published by the platform root (aws_ssm_parameter.platform_vpc)."
+  type        = string
 }
 
 variable "step2_wait_seconds" {
@@ -129,7 +144,7 @@ variable "rds_publicly_accessible" {
 }
 
 variable "rds_ingress_cidr" {
-  description = "CIDR allowed inbound on 5432 for RDS. Local cluster: the machine's public IP. Managed EKS: the worker-node / VPC CIDR."
+  description = "CIDR allowed inbound on 5432 for RDS. Empty (default) = derive from the platform VPC CIDR published to SSM — right where pods run in-VPC (EKS). Local cluster: set your machine's public IP."
   type        = string
-  default     = "0.0.0.0/0"
+  default     = ""
 }

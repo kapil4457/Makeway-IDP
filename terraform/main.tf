@@ -55,6 +55,11 @@ locals {
   db_password      = var.db_password != "" ? var.db_password : random_password.db_password.result
   app_secret_key   = var.app_secret_key != "" ? var.app_secret_key : random_password.app_secret_key.result
   internal_api_key = var.internal_api_key != "" ? var.internal_api_key : random_password.internal_api_key.result
+
+  # Worker Lambdas reach the control plane in-VPC via Cloud Map (the control
+  # plane is fully private; the ALB fronts the UI and deliberately does not
+  # proxy /internal, the worker-callback surface).
+  worker_control_plane_url = "http://${var.ecs_service_name}.${aws_service_discovery_private_dns_namespace.platform.name}:8000"
 }
 
 # --- Bastion / SSM Session Manager ---
@@ -101,7 +106,20 @@ module "sqs_consumer" {
   # Resolved relative to the terraform/ root where plan/apply run.
   handler_source_file = "../workers/sqs_consumer/handler.py"
 
-  # state_machine_arn = module.app_creation.state_machine_arn
+  state_machine_arn = module.app_creation.state_machine_arn
+}
+
+# --- Worker Lambdas (Step-1/Step-2, health reporter) ---------------------------
+# The workers report to the control plane's internal API (/internal/*). With
+# the control plane fully private, they run in the VPC: private subnets + their
+# own security group, admitted to the control-plane task SG on the API port
+# (rule api_from_workers below). NAT gives them egress for GitHub, the exposed
+# kube endpoints and AWS APIs. The SQS consumer stays non-VPC — it only talks
+# to SQS and Step Functions.
+resource "aws_security_group" "workers" {
+  name        = "makeway-workers"
+  description = "Makeway worker Lambdas (app-creation steps, health reporter)"
+  vpc_id      = module.vpc.vpc_id
 }
 
 # --- App-creation workflow — Step 1 (GitHub Setup) ---
@@ -110,45 +128,57 @@ module "sqs_consumer" {
 # into the Makeway platform repo (PR), and reports status to the control plane.
 # The GitHub PAT lives in Secrets Manager and is read at runtime (never baked
 # into artifacts). state_machine_arn feeds the consumer above.
-# module "app_creation" {
-#   source = "./modules/app_creation_step_functions"
+module "app_creation" {
+  source = "./modules/app_creation_step_functions"
 
-#   name                  = "makeway-app-creation-step1"
-#   handler_source_dir    = "../workers/step_functions/step_1 - GitHub Setup"
-#   github_owner          = var.github_owner
-#   github_pat            = var.github_pat
-#   control_plane_url     = var.control_plane_url
-#   internal_api_key      = local.internal_api_key
-#   makeway_platform_repo = var.makeway_platform_repo
+  name                  = "makeway-app-creation-step1"
+  handler_source_dir    = "../workers/step_functions/step_1 - GitHub Setup"
+  github_owner          = var.github_owner
+  github_pat            = var.github_pat
+  control_plane_url     = local.worker_control_plane_url
+  internal_api_key      = local.internal_api_key
+  makeway_platform_repo = var.makeway_platform_repo
 
-#   step2_name               = "makeway-app-creation-step2"
-#   step2_handler_source_dir = "../workers/step_functions/step_2 - Infra Provisioning"
-#   kube_api_endpoint        = var.kube_api_endpoint
-#   kube_ca_cert             = var.kube_ca_cert
-#   kube_token               = var.kube_token
-#   step2_max_attempts       = var.step2_max_attempts
-# }
+  # Workers must run in-VPC to reach the private control plane (see the
+  # workers security group above and the api_from_workers rule).
+  subnet_ids         = module.vpc.private_subnet_ids
+  security_group_ids = [aws_security_group.workers.id]
+
+  step2_name                  = "makeway-app-creation-step2"
+  step2_handler_source_dir    = "../workers/step_functions/step_2 - Infra Provisioning"
+  platform_vpc_parameter_name = aws_ssm_parameter.platform_vpc.name
+  kube_api_endpoint           = var.kube_api_endpoint
+  kube_ca_cert                = var.kube_ca_cert
+  kube_token                  = var.kube_token
+  step2_max_attempts          = var.step2_max_attempts
+}
 
 # --- ArgoCD health reporter ---------------------------------------------------
 # A scheduled Lambda that mirrors the live ArgoCD Application inventory into
 # the control plane's DeploymentSetup table (POST /internal/deployment-setup)
 # so GET /app/{app}/status shows real per-service health instead of 'unknown'.
 # Same exposed-cluster access as Step-2 (KUBE_*); no AWS API permissions.
-# module "health_reporter" {
-#   source = "./modules/health_reporter"
+module "health_reporter" {
+  source = "./modules/health_reporter"
 
-#   handler_source_dir  = "../workers/health_reporter"
-#   control_plane_url   = var.control_plane_url
-#   internal_api_key    = local.internal_api_key
-#   kube_api_endpoint   = var.kube_api_endpoint
-#   kube_ca_cert        = var.kube_ca_cert
-#   kube_token          = var.kube_token
-#   schedule_expression = var.health_reporter_schedule
-# }
+  handler_source_dir  = "../workers/health_reporter"
+  control_plane_url   = local.worker_control_plane_url
+  internal_api_key    = local.internal_api_key
+  kube_api_endpoint   = var.kube_api_endpoint
+  kube_ca_cert        = var.kube_ca_cert
+  kube_token          = var.kube_token
+  schedule_expression = var.health_reporter_schedule
 
-# --- ALB (control-plane front door, public subnets) ---
-# Internet -> ALB (public) -> ECS task ENIs (private). The app SG keeps the
-# tasks unreachable from the internet; only the ALB can talk to them.
+  # In-VPC: reach the private control plane (see workers SG + api_from_workers).
+  subnet_ids         = module.vpc.private_subnet_ids
+  security_group_ids = [aws_security_group.workers.id]
+}
+
+# --- ALB (platform front door, public subnets) ---
+# Internet -> ALB (public) -> UI task ENIs (private). The ALB fronts the
+# platform UI; its nginx reverse-proxies the API paths to the control plane,
+# which is unreachable from the internet. The task SG only admits the ALB (on
+# the UI port) and itself (on the API port, for the nginx proxy hop).
 
 module "alb" {
   source = "./modules/alb"
@@ -157,19 +187,43 @@ module "alb" {
   vpc_id               = module.vpc.vpc_id
   public_subnet_ids    = module.vpc.public_subnet_ids
   container_port       = var.alb_container_port
+  target_group_name    = var.alb_target_group_name
   listeners            = var.alb_listeners
   health_check_path    = var.alb_health_check_path
   health_check_matcher = var.alb_health_check_matcher
 }
 
-# The ECS tasks accept application traffic only from the ALB security group.
-resource "aws_security_group_rule" "app_from_alb" {
+# The UI task ENIs accept application traffic only from the ALB security group.
+resource "aws_security_group_rule" "ui_from_alb" {
   type                     = "ingress"
-  from_port                = var.alb_container_port
-  to_port                  = var.alb_container_port
+  from_port                = 80
+  to_port                  = 80
   protocol                 = "tcp"
   security_group_id        = module.ecs.security_group_id
   source_security_group_id = module.alb.security_group_id
+}
+
+# In-cluster API hop: the UI's nginx proxies the API paths to the control
+# plane's container port. Both services share the task ENI security group, so
+# this is a self-referencing rule — nothing outside the tasks can open :8000.
+resource "aws_security_group_rule" "api_from_ui" {
+  type                     = "ingress"
+  from_port                = 8000
+  to_port                  = 8000
+  protocol                 = "tcp"
+  security_group_id        = module.ecs.security_group_id
+  source_security_group_id = module.ecs.security_group_id
+}
+
+# The worker Lambdas report to the internal API on the control-plane tasks —
+# admitted from the workers SG only (nothing else can open :8000).
+resource "aws_security_group_rule" "api_from_workers" {
+  type                     = "ingress"
+  from_port                = 8000
+  to_port                  = 8000
+  protocol                 = "tcp"
+  security_group_id        = module.ecs.security_group_id
+  source_security_group_id = aws_security_group.workers.id
 }
 
 # --- RDS (control-plane database) ---
@@ -280,7 +334,50 @@ resource "aws_instance" "bastion" {
   }
 }
 
-# --- ECS (control plane hosting, EC2 launch type) ---
+# --- ECS (control plane + platform UI hosting, EC2 launch type) ---
+
+# In-cluster service discovery: the UI's nginx resolves the control-plane tasks
+# by DNS name (control-plane.makeway.internal) instead of chasing task ENI IPs.
+# MULTIVALUE A records + short TTL keep resolution fresh across deployments —
+# nginx re-resolves per request (valid=3s in app/frontend/nginx.conf).
+resource "aws_service_discovery_private_dns_namespace" "platform" {
+  name        = "makeway.internal"
+  description = "In-cluster service discovery for ECS tasks"
+  vpc         = module.vpc.vpc_id
+}
+
+resource "aws_service_discovery_service" "control_plane" {
+  name = var.ecs_service_name
+
+  dns_config {
+    namespace_id = aws_service_discovery_private_dns_namespace.platform.id
+
+    dns_records {
+      type = "A"
+      ttl  = 10
+    }
+
+    routing_policy = "MULTIVALUE"
+  }
+}
+
+# --- Platform VPC facts (SSM) ---------------------------------------------------
+# The Crossplane compositions need the platform VPC's id / private subnets /
+# CIDR to place app databases. Terraform is the single source of truth: it
+# publishes them here, and the Step-2 Lambda reads the parameter at provision
+# time and bakes the values into each claim (replacing the __PLATFORM_*__
+# placeholders the old argocd/crossplane-overlays/platform-vpc kustomize overlay
+# filled from values committed to git).
+resource "aws_ssm_parameter" "platform_vpc" {
+  name        = "/makeway/platform/vpc"
+  description = "Platform VPC facts the Step-2 worker injects into Crossplane database claims (vpcId, subnetIds, cidr)."
+  type        = "String"
+  value = jsonencode({
+    vpcId     = module.vpc.vpc_id
+    subnetIds = module.vpc.private_subnet_ids
+    cidr      = var.vpc_cidr
+  })
+}
 
 # The task role needs to publish/consume the app-creation queue — same actions
 # the local makeway-sa service account holds in the dev environment.
@@ -313,7 +410,14 @@ module "ecs" {
   vpc_id           = module.vpc.vpc_id
   subnet_ids       = module.vpc.private_subnet_ids
   container_image  = var.ecs_image
-  target_group_arn = module.alb.target_group_arn
+  target_group_arn = null # fully private — the ALB fronts the UI task below
+
+  # Cloud Map registration so the UI's nginx can resolve the tasks by name.
+  service_registry_arn = aws_service_discovery_service.control_plane.arn
+
+  # Platform UI: second task definition + service, same cluster, same task SG.
+  ui_container_image  = var.frontend_image
+  ui_target_group_arn = module.alb.target_group_arn
 
   task_role_policy_arns = [aws_iam_policy.control_plane_sqs.arn]
 

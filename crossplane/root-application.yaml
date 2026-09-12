@@ -7,6 +7,10 @@ spec:
   project: default
   source:
     repoURL: https://github.com/kapil4457/Makeway-IDP
+    # The Crossplane configuration root (XRD + Compositions + Providers +
+    # Function). Database placement (VPC/subnets) is no longer patched here:
+    # the Step-2 Lambda reads it from SSM at provision time and puts it on
+    # each claim, so this tree carries no environment-specific values.
     path: crossplane
     targetRevision: main
   destination:

@@ -17,6 +17,7 @@ from dto.enums.capability_status import CapabilityStatus
 from dto.enums.job_status import JobStatus
 from dto.enums.job_step import JobStep
 from dto.enums.request_status import RequestStatus
+from dto.enums.request_type import RequestType
 from dto.request.internal import (
     InternalCapabilityOutput,
     InternalDeploymentSetupReport,
@@ -90,9 +91,18 @@ class InternalApiService:
         environments: [...], job: {jobId, status}}``
 
         ``environments`` is derived from the distinct ``cluster.environment``
-        of the request's services . ``serviceType`` is emitted as the
-        wire value (``fast-api``, ``node-js``, ``spring-boot``) so workers can
-        map it directly to a golden-path template.
+        of the request's services . Each capability also carries the cluster
+        access for its environment (``kubeApiEndpoint``/``kubeToken``/
+        ``kubeCaCert``, None when the cluster row has none) so the Step-2
+        worker reaches the right cluster per capability. ``serviceType`` is
+        emitted as the wire value (``fast-api``, ``node-js``, ``spring-boot``)
+        so workers can map it directly to a golden-path template.
+
+        ``requestType`` and ``rawRequest`` let a worker branch on the kind of
+        reconciliation this run performs — e.g. a ``delete_app`` request tears
+        its target environment down instead of applying it, and an
+        ``update_app`` request whose entries carry removal lists deletes those
+        XRs instead of upserting them.
         """
         request = self._get_request(request_id)
         app = self._resolve_app(request)
@@ -115,11 +125,17 @@ class InternalApiService:
         # Capabilities are environment-scoped: resolved per-capability via the
         # services each capability grants access to. This gives the Step-2
         # (provision-infra / Crossplane) worker the desired config for each
-        # capability and the namespace its Claim must land in ({appName}-{env}).
+        # capability, the namespace its instance must land in ({appName}-{env}),
+        # and the *cluster* that instance belongs to — kubeApiEndpoint,
+        # kubeToken, kubeCaCert come from the same Cluster row that resolves
+        # the environment, so each env's workloads reach their own cluster.
         capabilities = []
         for cap in self.capabilityRepository.get_by_app(app.appId):
             accesses = self.capabilityAccessRepository.get_by_capability(cap.capabilityId)
             env_for_cap = None
+            kube_endpoint = None
+            kube_token = None
+            kube_ca_cert = None
             service_names = []
             for access in accesses:
                 svc = self.serviceRepository.get_by_id(access.serviceId)
@@ -129,6 +145,9 @@ class InternalApiService:
                 cluster = self.clusterRepository.get_by_id(svc.clusterId)
                 if cluster is not None and env_for_cap is None:
                     env_for_cap = cluster.environment
+                    kube_endpoint = cluster.kubeApiEndpoint
+                    kube_token = cluster.kubeToken
+                    kube_ca_cert = cluster.kubeCaCert
 
             infra = self.infraRequirementRepository.get_by_capability(cap.capabilityId)
 
@@ -140,11 +159,16 @@ class InternalApiService:
                     "config": infra.config if infra else None,
                     "environment": env_for_cap,
                     "namespace": f"{app.appName}-{env_for_cap}" if env_for_cap else None,
+                    "kubeApiEndpoint": kube_endpoint,
+                    "kubeToken": kube_token,
+                    "kubeCaCert": kube_ca_cert,
                     "accessToServices": service_names,
                 }
             )
 
         return {
+            "requestType": request.requestType.value,
+            "rawRequest": request.rawRequest or {},
             "app": {
                 "appId": app.appId,
                 "appName": app.appName,
@@ -219,6 +243,16 @@ class InternalApiService:
         request.modifiedBy = "makeway-worker"
 
         self._apply_capability_outputs(request, payload.capabilities)
+
+        # Teardown bookkeeping: the pipeline could still re-derive deterministic
+        # XR names from live rows on any retry, so the desired-state rows a
+        # delete owns are only removed once a run reports SUCCESS. Request/Job
+        # rows survive as the audit trail.
+        if status == JobStatus.SUCCESS:
+            if request.requestType == RequestType.DELETE_APP:
+                self._purge_env(app, (request.rawRequest or {}).get("env"))
+            elif request.requestType == RequestType.UPDATE_APP:
+                self._purge_removed_items(app, request.rawRequest or {})
 
         self.session.commit()
 
@@ -304,9 +338,151 @@ class InternalApiService:
         services = self.serviceRepository.get_by_app(app.appId, cluster_id=cluster.clusterId)
         return {"env": env, "svcIds": [svc.svcId for svc in services]}
 
+    def get_cluster_details(self, cluster_name: str) -> dict:
+        """Redacted cluster info for bootstrap/verification.
+
+        Used by operators to confirm a cluster registration persisted the way
+        they expect. Deliberately does **not** return the raw token/CA — only
+        whether each is present, so the internal surface never leaks the
+        credential back out.
+        """
+        cluster = self.clusterRepository.get_by_name(cluster_name)
+        if cluster is None:
+            raise NotFoundException(
+                message=f"Cluster '{cluster_name}' not found.",
+                error_code="CLUSTER_NOT_FOUND",
+            )
+
+        return {
+            "clusterName": cluster.clusterName,
+            "environment": cluster.environment,
+            "kubeApiEndpoint": cluster.kubeApiEndpoint,
+            "hasToken": cluster.kubeToken is not None,
+            "hasCaCert": cluster.kubeCaCert is not None,
+        }
+
     # ------------------------------------------------------------------ #
     # Helpers
     # ------------------------------------------------------------------ #
+
+    # ------------------------------------------------------------------ #
+    # Teardown: desired-state purges (worker success callbacks)
+    # ------------------------------------------------------------------ #
+
+    def _purge_env(self, app: App, env: str | None) -> None:
+        """Hard-delete every desired-state row an env-scoped delete owns.
+
+        ``env`` is the rawRequest value the delete endpoint recorded; an
+        unknown/absent one or an unregistered cluster purges nothing (the rows
+        were never created for it anyway).
+        """
+        if not env:
+            logger.warning("delete purge skipped: no env in rawRequest (app %s)", app.appId)
+            return
+        cluster = self.clusterRepository.get_by_env(env)
+        if cluster is None:
+            logger.warning("delete purge skipped: no cluster registered for env '%s'", env)
+            return
+
+        services = self.serviceRepository.get_by_app(
+            app.appId, cluster_id=cluster.clusterId
+        )
+        cap_ids = [
+            cap.capabilityId
+            for cap in self.capabilityRepository.get_by_app(app.appId)
+            if self._capability_env(cap) == env
+        ]
+        self._purge_rows(
+            svc_ids=[svc.svcId for svc in services], cap_ids=cap_ids
+        )
+        logger.info(
+            "purged environment '%s' for app %s (%d services, %d capabilities)",
+            env,
+            app.appName,
+            len(services),
+            len(cap_ids),
+        )
+
+    def _purge_removed_items(self, app: App, raw_request: dict) -> None:
+        """Hard-delete the rows an update's removal lists named.
+
+        Each ``updates`` entry may carry ``remove_services`` (base names) and
+        ``remove_capabilities`` (capability-type values), validated by the
+        update service at submit time; this is their post-success execution.
+        """
+        for entry in raw_request.get("updates") or []:
+            env = entry.get("env")
+            cluster = self.clusterRepository.get_by_env(env)
+            if cluster is None:
+                continue
+
+            removed_services = set(entry.get("remove_services") or [])
+            svc_ids = []
+            for svc in self.serviceRepository.get_by_app(
+                app.appId, cluster_id=cluster.clusterId
+            ):
+                base = (
+                    svc.svcName.rsplit(f"-{env}", 1)[0]
+                    if svc.svcName.endswith(f"-{env}") else svc.svcName
+                )
+                if base in removed_services:
+                    svc_ids.append(svc.svcId)
+
+            removed_caps = set(entry.get("remove_capabilities") or [])
+            cap_ids = [
+                cap.capabilityId
+                for cap in self.capabilityRepository.get_by_app(app.appId)
+                if cap.capabilityType in removed_caps
+                and self._capability_env(cap) == env
+            ]
+            if svc_ids or cap_ids:
+                self._purge_rows(svc_ids=svc_ids, cap_ids=cap_ids)
+                logger.info(
+                    "purged update removals for app %s in '%s' "
+                    "(%d services, %d capabilities)",
+                    app.appName,
+                    env,
+                    len(svc_ids),
+                    len(cap_ids),
+                )
+
+    def _capability_env(self, cap: Capability) -> str | None:
+        """The env a capability is scoped to, derived the same way
+        ``get_request_details`` derives it: from the cluster of the services it
+        grants access to."""
+        for access in self.capabilityAccessRepository.get_by_capability(
+            cap.capabilityId
+        ):
+            svc = self.serviceRepository.get_by_id(access.serviceId)
+            if svc is None:
+                continue
+            cluster = self.clusterRepository.get_by_id(svc.clusterId)
+            if cluster is not None:
+                return cluster.environment
+        return None
+
+    def _purge_rows(self, svc_ids: list[int], cap_ids: list[int]) -> None:
+        """Delete the rows a teardown owns, children first (FK order):
+        deployment setups and access edges, then infra requirements and
+        capabilities, then the services. Flushed rows commit with the caller's
+        single ``session.commit()``."""
+        for svc_id in svc_ids:
+            self.deploymentSetupRepository.delete_all_by_service(svc_id)
+            for access in self.capabilityAccessRepository.get_by_service(svc_id):
+                self.capabilityAccessRepository.delete(access)
+        for cap_id in cap_ids:
+            for access in self.capabilityAccessRepository.get_by_capability(cap_id):
+                self.capabilityAccessRepository.delete(access)
+            infra = self.infraRequirementRepository.get_by_capability(cap_id)
+            if infra is not None:
+                self.infraRequirementRepository.delete(infra)
+            cap = self.capabilityRepository.get_by_id(cap_id)
+            if cap is not None:
+                self.capabilityRepository.delete(cap)
+        for svc_id in svc_ids:
+            svc = self.serviceRepository.get_by_id(svc_id)
+            if svc is not None:
+                self.serviceRepository.delete(svc)
 
     def _get_request(self, request_id: int) -> Request:
         request = self.requestRepository.get_by_id(request_id)

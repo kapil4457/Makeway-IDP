@@ -43,11 +43,40 @@ output "control_plane_db_name" {
 }
 
 output "alb_dns_name" {
-  description = "DNS name of the control-plane ALB. Point your domain's CNAME here (or A record to the zone_id)."
+  description = "DNS name of the platform ALB. Point your domain's CNAME here (or A record to the zone_id)."
   value       = module.alb.dns_name
 }
 
 output "alb_zone_id" {
-  description = "Route 53 hosted zone ID of the control-plane ALB."
+  description = "Route 53 hosted zone ID of the platform ALB."
   value       = module.alb.zone_id
+}
+
+output "platform_url" {
+  description = "Public URL of the platform UI (ALB root). The API lives under the same origin — /app, /auth, /cluster and /docs are reverse-proxied by the UI container to the private control plane."
+  value       = "http://${module.alb.dns_name}"
+}
+
+output "ui_service_name" {
+  description = "ECS service running the platform UI (drain it alongside the control plane on destroy)."
+  value       = module.ecs.ui_service_name
+}
+
+# --- Platform VPC facts for the Crossplane compositions -----------------------
+# The same values are published to the SSM parameter /makeway/platform/vpc
+# (aws_ssm_parameter.platform_vpc), which the Step-2 worker reads at provision
+# time to fill each database claim — the source of truth for database placement.
+output "platform_vpc_id" {
+  description = "ID of the platform VPC the Crossplane database composition provisions into."
+  value       = module.vpc.vpc_id
+}
+
+output "platform_private_subnet_ids" {
+  description = "Platform private subnet IDs (the DBSubnetGroup uses the first two)."
+  value       = module.vpc.private_subnet_ids
+}
+
+output "platform_vpc_cidr" {
+  description = "CIDR of the platform VPC (default ingress source for the per-DB security group)."
+  value       = var.vpc_cidr
 }

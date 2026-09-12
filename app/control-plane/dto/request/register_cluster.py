@@ -29,3 +29,20 @@ class ClusterRegisterRequest(BaseModel):
         ),
         examples=["qa", "uat", "prod"],
     )
+    kubeToken: str | None = Field(
+        default=None,
+        description=(
+            "Bearer token for the 'makeway-worker' ServiceAccount on this "
+            "cluster. Optional: when empty, the Step-2 worker falls back to "
+            "the Lambda environment's KUBE_TOKEN for capabilities on this "
+            "cluster."
+        ),
+    )
+    kubeCaCert: str | None = Field(
+        default=None,
+        description=(
+            "Base64 CA bundle of this cluster's exposed apiserver. Empty "
+            "disables TLS verification (the pinggy raw-TCP tunnel keeps the "
+            "cluster's self-signed cert unmatchable)."
+        ),
+    )

@@ -1,0 +1,15 @@
+# Shared per-cluster bootstrap Applications, referenced by the env overlays
+# (argocd/clusters/{qa,uat,prod}/kustomization.yaml → `../base`).
+#
+# Kustomize's root-only loader rejects *file* references from outside the
+# kustomization root, so the three bootstrap Applications live here instead of
+# pointing at their canonical siblings. Keep these in sync with:
+#   - crossplane/root-application.yaml
+#   - argocd/external-secrets/eso-install-application.yaml
+#   - argocd/external-secrets/store-application.yaml
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - crossplane-application.yaml
+  - eso-install-application.yaml
+  - store-application.yaml

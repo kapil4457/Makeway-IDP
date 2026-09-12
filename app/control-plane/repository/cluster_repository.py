@@ -28,6 +28,12 @@ class ClusterRepository:
         )
         return self.session.exec(clusters).first()
 
+    def list_all(self) -> list[Cluster]:
+        """All registered clusters, most recently modified first. Read-only."""
+        statement = select(Cluster).order_by(Cluster.modifiedAt.desc())
+
+        return list(self.session.exec(statement).all())
+
 
 
     def create(self, cluster: Cluster) -> Cluster:

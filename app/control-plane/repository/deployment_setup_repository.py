@@ -50,3 +50,23 @@ class DeploymentSetupRepository:
         self.session.flush()
 
         return deployment_setup
+
+    def get_all_by_service_id(self, svc_id: int) -> list[DeploymentSetup]:
+        """Every deployment setup ever recorded for a service (a teardown
+        removes all of them, not just the latest)."""
+        statement = select(DeploymentSetup).where(
+            DeploymentSetup.serviceId == svc_id
+        )
+
+        return self.session.exec(statement).all()
+
+    def delete_all_by_service(self, svc_id: int) -> int:
+        """Remove every deployment-setup row for a service. Returns how many
+        rows went. Flushed, not committed — the caller owns the ``commit``."""
+        rows = self.get_all_by_service_id(svc_id)
+        for row in rows:
+            self.session.delete(row)
+        if rows:
+            self.session.flush()
+
+        return len(rows)

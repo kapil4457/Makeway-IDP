@@ -10,8 +10,18 @@ variable "handler_source_dir" {
 }
 
 variable "control_plane_url" {
-  description = "Base URL of the control-plane internal API, reachable from this Lambda (e.g. the ALB DNS name)."
+  description = "Base URL of the control-plane internal API, reachable from this Lambda. The control plane is fully private, so this is the in-VPC Cloud Map URL (http://control-plane.makeway.internal:8000) — requires the VPC attachment below."
   type        = string
+}
+
+variable "subnet_ids" {
+  description = "Private subnet IDs for the Lambda's ENIs. The reporter must run in-VPC to reach the private control plane (and Cloud Map DNS); NAT provides its egress to the kube endpoint."
+  type        = list(string)
+}
+
+variable "security_group_ids" {
+  description = "Security groups for the Lambda's ENIs. Admitted to the control-plane task SG on the API port by the root's api_from_workers rule."
+  type        = list(string)
 }
 
 variable "internal_api_key" {

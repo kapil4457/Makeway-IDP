@@ -36,3 +36,11 @@ class InfraRequirementRepository:
         self.session.flush()
 
         return infra_requirement
+
+    def delete(self, infra_requirement: InfraRequirement) -> None:
+        """
+        Remove an infra-requirement row within the calling unit of work.
+        Flushed, not committed — the caller owns the eventual ``commit``.
+        """
+        self.session.delete(infra_requirement)
+        self.session.flush()

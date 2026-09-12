@@ -88,3 +88,4 @@ env_setup.bash
 *.jpg
 tfplan
 tfdestroy.plan
+aws-credentials.yaml

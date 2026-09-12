@@ -54,7 +54,19 @@ spec:
                   type: object
                   required:
                     - databaseName
+                    - platformVpcId
+                    - platformSubnetIds
                   properties:
+                    platformVpcId:
+                      type: string
+                      minLength: 1
+                      description: "Platform VPC the database provisions into. Supplied by the Step-2 Lambda (read from SSM at provision time) — placement is platform-managed, not a user knob."
+                    platformSubnetIds:
+                      type: array
+                      items:
+                        type: string
+                      minItems: 2
+                      description: "Private subnets (2+ AZs) for the DB subnet group, from the same SSM platform-facts parameter as platformVpcId."
                     databaseName:
                       type: string
                       minLength: 1
@@ -72,7 +84,7 @@ spec:
                       minimum: 1
                       maximum: 10
                       default: 5
-                      description: "Capacity tier (1 = smallest, 10 = largest). The Composition maps it to an RDS instance class."
+                      description: "Capacity tier (1 = smallest, 10 = largest). The Composition maps it to an RDS instance class and sizes storage at 10 GB per tier point (tier 5 = 50GB)."
                     region:
                       type: string
                       default: ap-south-1
@@ -87,8 +99,8 @@ spec:
                       description: "Local-cluster escape hatch. On the k3d/kind cluster the app runs off-VPC, so to reach RDS from a pod set true and open ingressSourceCidr. On managed EKS this stays false (VPC-only endpoint)."
                     ingressSourceCidr:
                       type: string
-                      default: "__PLATFORM_VPC_CIDR__"
-                      description: "CIDR allowed inbound on TCP 5432. On managed EKS this becomes the worker-node Security Group; on the local cluster, the machine's public IP."
+                      default: "0.0.0.0/0"
+                      description: "CIDR allowed inbound on TCP 5432. Always set by the Step-2 Lambda (RDS_INGRESS_CIDR env, else the platform VPC CIDR from SSM); the default only covers hand-applied XRs. On managed EKS the derived value is the platform VPC CIDR; on the local cluster, the machine's public IP (RDS_INGRESS_CIDR)."
 # NOTE: the initial password is NOT an XR knob. The Step-2 Lambda generates it,
 # stores it in a K8s Secret named {claimName}-creds in the namespace, and the
 # Composition references it via the DBInstance passwordSecretRef. The password

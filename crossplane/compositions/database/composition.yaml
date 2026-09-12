@@ -5,7 +5,9 @@
 # the XR's parameters into the composed Managed Resources below.
 #
 # Wiring (following the platform RDS module, terraform/modules/rds/):
-#   - DBSubnetGroup     → the platform VPC's private subnets (placeholders below)
+#   - DBSubnetGroup     → the platform VPC's private subnets (platformVpcId /
+#                         platformSubnetIds XR params, supplied by the Step-2
+#                         Lambda from SSM at provision time)
 #   - SecurityGroup     → in the platform VPC, one ingress rule on TCP 5432
 #   - SecurityGroupRule → source CIDR (EKS worker SG on managed EKS, dev IP on local)
 #   - DBInstance        → postgres, engineVersion param, port 5432, gp3, encrypted,
@@ -50,6 +52,9 @@ spec:
               toFieldPath: name
         resources:
     # ---- subnet group: platform VPC private subnets -------------------------
+    # Placement comes from the XR's platformVpcId/platformSubnetIds parameters —
+    # supplied by the Step-2 Lambda from SSM at provision time (platform-managed,
+    # not committed to this repo).
           - name: subnetgroup
             base:
               apiVersion: rds.aws.m.upbound.io/v1beta1
@@ -57,9 +62,7 @@ spec:
               spec:
                 forProvider:
                   region: ap-south-1
-                  subnetIds:
-                    - __PLATFORM_PRIVATE_SUBNET_1__
-                    - __PLATFORM_PRIVATE_SUBNET_2__
+                  subnetIds: []
                   tags:
                     managed-by: makeway
                 providerConfigRef:
@@ -68,6 +71,9 @@ spec:
               - type: FromCompositeFieldPath
                 fromFieldPath: spec.parameters.region
                 toFieldPath: spec.forProvider.region
+              - type: FromCompositeFieldPath
+                fromFieldPath: spec.parameters.platformSubnetIds
+                toFieldPath: spec.forProvider.subnetIds
 
           # ---- security group: one per database (least privilege) ----------
           - name: securitygroup
@@ -77,7 +83,7 @@ spec:
               spec:
                 forProvider:
                   region: ap-south-1
-                  vpcId: __PLATFORM_VPC_ID__
+                  vpcId: ""
                   description: Makeway-managed RDS security group
                   tags:
                     managed-by: makeway
@@ -87,6 +93,9 @@ spec:
               - type: FromCompositeFieldPath
                 fromFieldPath: spec.parameters.region
                 toFieldPath: spec.forProvider.region
+              - type: FromCompositeFieldPath
+                fromFieldPath: spec.parameters.platformVpcId
+                toFieldPath: spec.forProvider.vpcId
 
           # ---- ingress rule: who may reach the database on 5432 ------------
           - name: ingress
@@ -101,7 +110,7 @@ spec:
                   toPort: 5432
                   protocol: tcp
                   cidrBlocks:
-                    - __PLATFORM_VPC_CIDR__
+                    - 0.0.0.0/0
                   # Cross-resource reference: `securitygroup` is the composition
                   # resource name above; the function resolves it to the SG's id.
                   securityGroupIdRef:
@@ -127,7 +136,10 @@ spec:
                   engine: postgres
                   engineVersion: "17"
                   instanceClass: db.t4g.small
-                  allocatedStorage: 20
+                  # Tier sizing: capacity N provisions 10×N GB (tier 1 = 10GB,
+                  # tier 5 = 50GB …). The FromCompositeFieldPath math patch
+                  # below always overwrites this base value.
+                  allocatedStorage: 10
                   storageType: gp3
                   dbName: orders
                   username: makeway_admin
@@ -184,6 +196,16 @@ spec:
                       "8": db.t4g.large
                       "9": db.t4g.large
                       "10": db.t4g.xlarge
+              # Storage grows with the tier: 10 GB per capacity point. The
+              # Step-2 Lambda only sends the tier, so this is the single place
+              # GB sizing is defined (change the multiplier, not the worker).
+              - type: FromCompositeFieldPath
+                fromFieldPath: spec.parameters.capacity
+                toFieldPath: spec.forProvider.allocatedStorage
+                transforms:
+                  - type: math
+                    math:
+                      multiply: 10
               # the password Secret lives next to the pod: {xrName}-creds in the
               # XR's namespace. v2 XRs carry no claim labels, so read the XR's
               # own metadata.name / metadata.namespace to locate the Secret.

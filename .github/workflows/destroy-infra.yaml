@@ -91,14 +91,23 @@ jobs:
           # Outputs may already be gone on a re-run after a partial destroy —
           # drain only what still exists. The ASG lookup below is independent.
           CLUSTER="$(terraform output -raw ecs_cluster_name 2>/dev/null || true)"
-          SERVICE="$(terraform output -raw ecs_service_name 2>/dev/null || true)"
-          if [ -n "$CLUSTER" ] && [ -n "$SERVICE" ]; then
-            # Stop the control-plane task so DeleteService doesn't hang waiting on
-            # a RUNNING task (the capacity provider also can't drain while it runs).
-            aws ecs update-service --region "$AWS_REGION" --cluster "$CLUSTER" \
-              --service "$SERVICE" --desired-count 0
+          # Drain every platform service that still exists (control plane +
+          # platform UI — both run in the same cluster and must be drained
+          # before the capacity provider can release its instances).
+          SERVICES=()
+          CP="$(terraform output -raw ecs_service_name 2>/dev/null || true)"
+          UI="$(terraform output -raw ui_service_name 2>/dev/null || true)"
+          if [ -n "$CP" ]; then SERVICES+=("$CP"); fi
+          if [ -n "$UI" ]; then SERVICES+=("$UI"); fi
+          if [ -n "$CLUSTER" ] && [ "${#SERVICES[@]}" -gt 0 ]; then
+            for SERVICE in "${SERVICES[@]}"; do
+              # Stop each service's task so DeleteService doesn't hang waiting on
+              # a RUNNING task (the capacity provider also can't drain while it runs).
+              aws ecs update-service --region "$AWS_REGION" --cluster "$CLUSTER" \
+                --service "$SERVICE" --desired-count 0 >/dev/null
+            done
             aws ecs wait services-stable --region "$AWS_REGION" \
-              --cluster "$CLUSTER" --services "$SERVICE"
+              --cluster "$CLUSTER" --services "${SERVICES[@]}"
           fi
           # Scale the container-instance ASG to zero. Without this the capacity
           # provider's managed scaling (target_capacity=100) keeps terminating
