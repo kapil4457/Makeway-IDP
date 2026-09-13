@@ -13,6 +13,11 @@ rules:
   - apiGroups: ["makeway.io"]
     resources: ["*"]
     verbs: ["get", "list", "watch", "create", "patch", "delete"]
+  # ArgoCD Applications — health reporter mirrors the live inventory (read-only:
+  # ArgoCD itself owns these objects, the worker never writes them).
+  - apiGroups: ["argoproj.io"]
+    resources: ["applications"]
+    verbs: ["get", "list", "watch"]
   - apiGroups: [""]
     resources: ["secrets"]
     verbs: ["get", "list", "create", "patch", "delete"]

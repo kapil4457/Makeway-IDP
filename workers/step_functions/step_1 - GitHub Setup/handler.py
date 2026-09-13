@@ -953,6 +953,15 @@ def handler(event, context):
     job_id = int(event.get("job_id", 0))
     execution_arn = event.get("execution_arn")
 
+    # Fresh secret read per invocation: these module globals persist in a warm
+    # execution environment, so a PAT rotated between executions would
+    # otherwise keep failing with the stale cached token until AWS happened to
+    # recycle the container. Within-execution caching is unaffected — one
+    # secret read + one /user call per run.
+    global _github_token, _git_identity_cache
+    _github_token = None
+    _git_identity_cache = None
+
     logger.info(
         "Step 1 (GitHub Setup) starting request_id=%s job_id=%s execution=%s",
         request_id,
