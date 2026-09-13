@@ -217,11 +217,10 @@ def _kube_ssl_context(ca_cert: str | None = None) -> ssl.SSLContext:
 
     Accepts an optional per-cluster CA (from the claim / control-plane
     registry); when absent it falls back to the module global KUBE_CA_CERT.
-    A populated CA enables real verification. An empty CA (the pinggy
-    raw-TCP reality — the cluster's self-signed cert SANs never match the
-    tunnel host) disables verification with a loud warning; the bearer token
-    is still the auth boundary. One no-verify context is shared under the
-    empty-CA key.
+    A populated CA enables real verification. An empty CA (the dev-tunnel
+    convention — see localTunnel/README.md) disables verification with a
+    loud warning; the bearer token is still the auth boundary. One
+    no-verify context is shared under the empty-CA key.
     """
     ca = ca_cert if ca_cert is not None else KUBE_CA_CERT
     cached = _kube_ssl_contexts.get(ca)
@@ -269,6 +268,9 @@ def _kube(
         "Authorization": f"Bearer {api_token}",
         "Accept": "application/json",
         "Content-Type": content_type,
+        # Tunnel edges (loca.lt) serve a consent page to browser-looking
+        # traffic; explicit bypass keeps API calls clean on such endpoints.
+        "Bypass-Tunnel-Reminder": "true",
     }
     request = urllib.request.Request(url, headers=headers, method=method)
     if payload is not None:

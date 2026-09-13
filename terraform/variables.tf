@@ -184,7 +184,7 @@ variable "makeway_platform_repo" {
 # Step-2 Lambda must target the same AWS account.
 
 variable "kube_api_endpoint" {
-  description = "Fallback default cluster kube-apiserver URL the Step-2 Lambda reaches, e.g. https://k8s.makeway.dev (pinggy/ingress in front of the cluster). Per-env endpoints come from the Cluster registry at runtime."
+  description = "Fallback default cluster kube-apiserver URL the Step-2 Lambda reaches, e.g. https://k8s.makeway.dev (tunnel/ingress in front of the cluster — localTunnel/README.md for dev). Per-env endpoints come from the Cluster registry at runtime."
   type        = string
 }
 

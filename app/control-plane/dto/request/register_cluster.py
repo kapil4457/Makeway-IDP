@@ -42,7 +42,7 @@ class ClusterRegisterRequest(BaseModel):
         default=None,
         description=(
             "Base64 CA bundle of this cluster's exposed apiserver. Empty "
-            "disables TLS verification (the pinggy raw-TCP tunnel keeps the "
-            "cluster's self-signed cert unmatchable)."
+            "disables TLS verification (the dev tunnel setup keeps "
+            "verification off — see localTunnel/README.md)."
         ),
     )

@@ -432,7 +432,7 @@ How the plumbing works:
 Set `MAKEWAY_*` at **repo level** so the environment-less *plan* job in
 `deploy-infra.yaml` can read them. `MAKEWAY_KUBE_TOKEN` should hold a
 `makeway-worker` ServiceAccount token, and `MAKEWAY_KUBE_API_ENDPOINT` the
-pinggy TCP-tunnel endpoint (`https://<host>:<port>` in front of
+localtunnel endpoint (`https://<subdomain>.loca.lt` in front of
 `127.0.0.1:6443`) — these are now the **fallback/default cluster** (used when a
 registered cluster row has no token, and by the health reporter); per-env
 endpoint/token/CA are registered per cluster in the control plane — see the
@@ -473,9 +473,9 @@ is still the override if you ever apply from a machine.
 
 | Env var | Read in | Meaning | Set by | Default |
 |---|---|---|---|---|
-| `KUBE_API_ENDPOINT` | `step_2/handler.py:66` | **Fallback** public kube-apiserver URL — used only when a registered cluster row has no token. Per-capability endpoint now comes from the Cluster registry via `GET /internal/requests/{id}` (pinggy TCP tunnel in front of `127.0.0.1:6443`) | module `var.kube_api_endpoint` ← **local tfvars / CI var** | — (required) |
+| `KUBE_API_ENDPOINT` | `step_2/handler.py:66` | **Fallback** public kube-apiserver URL — used only when a registered cluster row has no token. Per-capability endpoint now comes from the Cluster registry via `GET /internal/requests/{id}` (localtunnel in front of `127.0.0.1:6443`) | module `var.kube_api_endpoint` ← **local tfvars / CI var** | — (required) |
 | `KUBE_TOKEN` | `step_2/handler.py:68` | **Fallback** `makeway-worker` SA bearer token for clusters registered without one | module `var.kube_token` ← **local tfvars / CI secret** | — (required) |
-| `KUBE_CA_CERT` | `step_2/handler.py:67`, `_kube_ssl_context()` | **Fallback** base64 CA cert — **empty for the pinggy TCP tunnel** (raw TCP means the apiserver's self-signed cert can't match the pinggy hostname) | module `var.kube_ca_cert` | empty → TLS verification disabled (dev) |
+| `KUBE_CA_CERT` | `step_2/handler.py:67`, `_kube_ssl_context()` | **Fallback** base64 CA cert — **empty for the dev tunnel setup** (verification stays off; see localTunnel/README.md) | module `var.kube_ca_cert` | empty → TLS verification disabled (dev) |
 | `CONTROL_PLANE_URL` / `INTERNAL_API_KEY` | top of handler | same as Step 1 | module env | — |
 | `GITHUB_OWNER` / `GITHUB_TOKEN_SECRET_ID` / `MAKEWAY_PLATFORM_REPO` | top of handler | same as Step 1 | module env | `Makeway-IDP` |
 | `SECRETS_PREFIX` | `step_2/handler.py:78` | Secrets Manager name prefix | module `var.secrets_prefix` | `makeway` |

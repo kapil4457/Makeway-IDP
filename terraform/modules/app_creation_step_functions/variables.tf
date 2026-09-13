@@ -94,12 +94,12 @@ variable "step2_memory_mb" {
 }
 
 variable "kube_api_endpoint" {
-  description = "Fallback default cluster kube-apiserver URL the Step-2 Lambda reaches, e.g. https://k8s.makeway.dev (pinggy/ingress in front of the cluster). Per-env endpoints come from the Cluster registry at runtime."
+  description = "Fallback default cluster kube-apiserver URL the Step-2 Lambda reaches, e.g. https://k8s.makeway.dev (tunnel/ingress in front of the cluster — localTunnel/README.md for dev). Per-env endpoints come from the Cluster registry at runtime."
   type        = string
 }
 
 variable "kube_ca_cert" {
-  description = "Fallback base64 CA bundle of the exposed cluster (KUBE_CA_CERT). Empty disables TLS verification — required for a raw-TCP tunnel (e.g. pinggy), where the apiserver's self-signed cert can't match the tunnel hostname."
+  description = "Fallback base64 CA bundle of the exposed cluster (KUBE_CA_CERT). Empty disables TLS verification — the dev tunnel setup keeps verification off (the bearer token is the boundary)."
   type        = string
   default     = ""
   sensitive   = true

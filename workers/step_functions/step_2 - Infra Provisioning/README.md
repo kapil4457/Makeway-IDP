@@ -2,12 +2,12 @@
 
 The Step-2 Lambda provisions the app's infrastructure by upserting **Crossplane XR instances** into the Kubernetes cluster of each requested **environment** (`{app}-{env}` namespace), polling them until `Ready+Synced`, then extracting the connection Secrets into AWS Secrets Manager and committing ExternalSecrets into gitops.
 
-It reaches each cluster over **HTTPS through a tunnel** (pinggy is the documented option) to the **kube-apiserver** — it does not need a VPN or a VPC peering with your machine. The platform is **one cluster per environment** (qa/uat/prod): each cluster runs its own ArgoCD + Crossplane + ESO, is exposed through its own tunnel, and is **registered in the control-plane Cluster registry** with its endpoint, a `makeway-worker` bearer token, and (optionally) its CA bundle. The worker resolves per-capability which cluster to call from the registry — the Lambda env `KUBE_*` values are only the fallback for clusters without a registered token.
+It reaches each cluster over **HTTPS through a tunnel** (localtunnel is the documented dev option — see [localTunnel/README.md](../../localTunnel/README.md)) to the **kube-apiserver** — it does not need a VPN or a VPC peering with your machine. The platform is **one cluster per environment** (qa/uat/prod): each cluster runs its own ArgoCD + Crossplane + ESO, is exposed through its own tunnel, and is **registered in the control-plane Cluster registry** with its endpoint, a `makeway-worker` bearer token, and (optionally) its CA bundle. The worker resolves per-capability which cluster to call from the registry — the Lambda env `KUBE_*` values are only the fallback for clusters without a registered token.
 
 The steps below are a **per-cluster loop** — run 1–3, 5–6 once per environment:
 
 1. [Architecture of the connection](#architecture-of-the-connection)
-2. [Expose a cluster with pinggy](#1-expose-the-cluster-with-pinggy)
+2. [Expose a cluster with localtunnel](#1-expose-the-cluster-with-localtunnel)
 3. [Create the `makeway-worker` ServiceAccount + RBAC](#2-create-the-makeway-worker-serviceaccount--rbac)
 4. [Get the CA bundle](#3-get-the-ca-bundle)
 5. [Register the cluster in the control plane](#4-register-the-cluster-in-the-control-plane)
@@ -20,12 +20,13 @@ The steps below are a **per-cluster loop** — run 1–3, 5–6 once per environ
 ## Architecture of the connection
 
 ```
-Step-2 Lambda (AWS)                           Your machine (each env cluster)
-┌───────────────┐  HTTPS :<tcp-port>  ┌─────────┐  raw TCP   ┌────────────────────────┐
-│ handler.py    │ ───────────────────► │  pinggy │ ─────────► │  kube-apiserver :6443   │
-│  (boto3 +     │  X-Internal-         │  SSH    │            │  (k3d/kind, local)      │
-│   urllib)     │  API-Key to CP       │  tunnel │            └────────────────────────┘
-└───────────────┘                      └─────────┘
+Step-2 Lambda (AWS)                              Your machine (each env cluster)
+┌───────────────┐   HTTPS 443   ┌─────────────────┐   HTTPS    ┌────────────────────────┐
+│ handler.py    │ ─────────────►│   loca.lt edge  │ ─────────► │  kube-apiserver :6443  │
+│  (boto3 +     │  X-Internal-  │  terminates TLS │  (self-    │  (k3d/kind, local)     │
+│   urllib)     │  API-Key to CP│  (*.loca.lt LE) │   signed)  └────────────────────────┘
+└───────────────┘               └─────────────────┘   ok'd by
+                                                     --allow-invalid-cert
         │
         │  GET /internal/requests/{id}  → per-capability
         │    kubeApiEndpoint / kubeToken / kubeCaCert  (from the Cluster registry)
@@ -39,50 +40,51 @@ Three pieces must match **per cluster**:
 
 | Piece | What it must point at | Provided via |
 |---|---|---|
-| Registered `kubeApiEndpoint` | `https://<pinggy-host>:<tcp-port>` — the public endpoint in front of `https://127.0.0.1:6443` (see step 1) | `POST /cluster/register` (step 4) |
+| Registered `kubeApiEndpoint` | `https://<subdomain>.loca.lt` — the public endpoint in front of `https://127.0.0.1:6443` (see step 1) | `POST /cluster/register` (step 4) |
 | Registered `kubeToken` | A long-lived bearer token for that cluster's `makeway-worker` ServiceAccount (see step 2) | `POST /cluster/register` (step 4) |
-| Registered `kubeCaCert` | Leave **empty** for the pinggy TCP tunnel (see step 3) | `POST /cluster/register` (step 4) |
+| Registered `kubeCaCert` | Leave **empty** for the localtunnel dev setup (see step 3) | `POST /cluster/register` (step 4) |
 
-The Lambda env `KUBE_API_ENDPOINT`/`KUBE_TOKEN`/`KUBE_CA_CERT` are now only the **fallback** (used when a cluster row has no token; also used by the health reporter's single-cluster sweep) — see step 5.
+The Lambda env `KUBE_API_ENDPOINT`/`KUBE_TOKEN`/`KUBE_CA_CERT` are now only the **fallback** (used when a cluster row has no token; also used by the health reporter's sweep) — see step 5.
 
 ---
 
-## 1. Expose the cluster with pinggy
+## 1. Expose the cluster with localtunnel
 
-The kube-apiserver by default **binds to `127.0.0.1:6443`** (e.g. `k3d cluster create` or `kind`). pinggy gives it a public **TCP** endpoint via an SSH reverse tunnel — no account, no agent.
+The kube-apiserver by default **binds to `127.0.0.1:6443`** (e.g. `k3d cluster create` or `kind`). localtunnel gives it a public **HTTPS** endpoint on a `*.loca.lt` URL — no account, just an npm package.
 
-> **What kind of tunnel is this?** The command below uses `+tcp`, a **raw TCP forward**: pinggy does **not terminate TLS**. The kube-apiserver itself performs the TLS handshake and presents its *own* certificate. That is why step 3 sets `kube_ca_cert` to empty.
+> **What kind of tunnel is this?** localtunnel **terminates TLS at the loca.lt edge** with a valid Let's Encrypt certificate for `*.loca.lt`, then re-encrypts to your local apiserver (`--local-https`); `--allow-invalid-cert` skips validating kind's self-signed cert on *that* hop only. The Lambda sees the loca.lt certificate — which is why the endpoint is a plain HTTPS URL with no port suffix. (The old pinggy setup was raw TCP and presented the apiserver's own cert instead.)
 
-**Start the tunnel:**
+**Start the tunnel** (see [localTunnel/README.md](../../localTunnel/README.md) for the full runbook):
 
 ```bash
-ssh -p 443 -R0:127.0.0.1:6443 \
-  -o StrictHostKeyChecking=no -o ServerAliveInterval=30 \
-  <PINGGY_TOKEN>+tcp@free.pinggy.io
+npx localtunnel --port 6443 --local-https --allow-invalid-cert --subdomain makeway-kube
+# -> https://makeway-kube.loca.lt
 ```
 
-- `-R0:127.0.0.1:6443` — forward a public port back to the local apiserver. `0` lets pinggy assign the public port.
-- `<PINGGY_TOKEN>+tcp` — your personal pinggy token (shown by the pinggy app for your account) with the `+tcp` suffix for a raw TCP tunnel (no TLS termination, no HTTP layer at pinggy).
-- `ServerAliveInterval=30` keeps the tunnel alive across idle time.
+- `--subdomain` — **always set it**: the URL is stored in the cluster registry and the Lambda fallback env, and a random URL changes on every restart. Subdomains are first-come-first-served; if taken, pick another name.
+- Keep the process **running** — if it dies, provisioning and health sweeps fail until it's back.
 
-On connect, pinggy prints the public endpoint as a `tcp://<host>:<port>` line. Read `<host>:<port>` from it — that is your kube endpoint:
+> **loca.lt consent page:** loca.lt serves a browser-facing interstitial; programmatic clients bypass it with a `Bypass-Tunnel-Reminder: true` header (any value) or a non-browser User-Agent. The workers send both. When testing with `curl`, add the header explicitly.
+
+The endpoint is simply the printed URL:
 
 ```
-tcp://<host>:<port>                  <- what pinggy prints
+https://makeway-kube.loca.lt        <- what localtunnel prints
 
-KUBE_API_ENDPOINT = https://<host>:<port>     (https, not tcp)
+KUBE_API_ENDPOINT = https://makeway-kube.loca.lt
 ```
 
-> **Free-plan caveat:** the public port is assigned per session, so the registered endpoint goes stale whenever the tunnel restarts. Restart the tunnel, read the new `<host>:<port>` from the output, and **re-register the same `clusterName`** — a same-environment re-registration refreshes the endpoint (and token/CA), so the control-plane registry stays current without any Terraform change (step 4).
+> **Restart caveat:** with a fixed `--subdomain` the URL survives restarts — nothing to redo. If the subdomain was lost/taken and you switch names, **re-register the same `clusterName`** with the new endpoint — a same-environment re-registration refreshes the endpoint (and token/CA), so the control-plane registry stays current without any Terraform change (step 4).
 
 After this step you should be able to, from another machine:
 
 ```bash
-curl -k https://<host>:<port>/version
+curl -s https://makeway-kube.loca.lt/version \
+  -H "Bypass-Tunnel-Reminder: true"
 # -> {"major":"1","minor":"27","gitVersion":"..."}
 ```
 
-If `curl` hangs or refuses, the tunnel isn't up / the forwarded port is wrong.
+If you get HTML instead of JSON, the tunnel isn't up, the port is wrong, or you're seeing the loca.lt consent page (add the header above).
 
 ---
 
@@ -169,27 +171,25 @@ kubectl get secret makeway-worker-token -n crossplane-system -o jsonpath='{.data
 
 ## 3. Get the CA bundle
 
-The Lambda validates the TLS certificate before sending the bearer token — *if* you supply a CA. For the pinggy **TCP** tunnel the answer is simple:
+The Lambda validates the TLS certificate before sending the bearer token — *if* you supply a CA. For the localtunnel dev setup the answer is:
 
 **Leave `kube_ca_cert` empty.**
 
-Because pinggy only forwards raw TCP, the certificate the Lambda sees is the **kube-apiserver's own** (self-signed for a local kind/k3d cluster). Its Subject Alternative Names are `kubernetes`, `kubernetes.default.svc`, `localhost`, `127.0.0.1` and the cluster IPs — **never** `<host>`. The handler's `_kube_ssl_context()` keeps hostname checking on whenever a CA is provided, so no CA bundle — not even the cluster's own — survives the hostname check against the pinggy endpoint:
+With localtunnel, the Lambda sees the **loca.lt edge's** certificate — a valid Let's Encrypt cert for `*.loca.lt` — so hostname checking would actually *match*. But the workers treat an empty CA as "verification disabled" (`_kube_ssl_context()` builds a no-verify context when no CA is given), which is the simplest dev configuration and works regardless of tunnel. The bearer token is still the auth boundary.
 
 ```python
 # handler.py: _kube_ssl_context(ca_cert=None); None falls back to KUBE_CA_CERT
 if ca:
-    context.load_verify_locations(cadata=...)   # check_hostname stays True -> will NOT match the pinggy host
+    context.load_verify_locations(cadata=...)   # check_hostname stays True
 else:
     logger.warning("no CA cert for this cluster API — TLS verification DISABLED.")
     context.check_hostname = False
     context.verify_mode = ssl.CERT_NONE
 ```
 
-Empty is the only working dev configuration, and the bearer token is still the auth boundary.
+**If you want TLS verification ON**, you don't need an ingress like the raw-TCP setups did — the `*.loca.lt` certificate is real. Supply a CA bundle the chain verifies against (e.g. base64 of the ISRG Root X1 PEM) when registering the cluster, and the workers verify end-to-end against the tunnel hostname.
 
-**If you need TLS verification for real traffic**, don't chase a CA bundle against a raw TCP tunnel — put a **TLS-terminating ingress** in front of the apiserver instead (an HTTPS tunnel that presents a real certificate, or a public hostname + ACM cert), and set `kube_ca_cert` to the base64 of the CA that signed *that* endpoint's certificate.
-
-**TL;DR:** `kube_ca_cert = ""` for the pinggy TCP setup. Dev-only; never ship that for a production control plane reaching a real cluster.
+**TL;DR:** `kube_ca_cert = ""` for the dev setup. For a production control plane reaching a real cluster, terminate TLS on a real hostname and pin its CA (the same mechanism, with your own CA).
 
 ---
 
@@ -210,7 +210,7 @@ curl -X POST $CONTROL_PLANE_URL/cluster/register \
 ```
 
 - `environment` must be one of `qa` / `uat` / `prod` — app creation resolves each env to its cluster by this value.
-- **Idempotent by `clusterName`**: re-running with the same name on the same environment **updates** endpoint/token/CA (this is how a pinggy endpoint change after a tunnel restart gets applied). Re-registering the same name on a *different* environment is rejected.
+- **Idempotent by `clusterName`**: re-running with the same name on the same environment **updates** endpoint/token/CA (this is how an endpoint change after a tunnel/subdomain change gets applied). Re-registering the same name on a *different* environment is rejected.
 - `kubeCaCert` empty = TLS verification stays off (dev, step 3). When you add a TLS-terminating ingress in front of the apiserver, re-register with the real base64 CA bundle and the worker will verify.
 - `kubeToken`/`kubeCaCert` are optional on purpose: a cluster registered without a token falls back to the Lambda env `KUBE_TOKEN`, and the worker keeps working. For three distinct clusters you will want a per-cluster token on each.
 
@@ -235,7 +235,7 @@ The `terraform.tfvars` kube values no longer drive per-env routing — they feed
 |---|---|---|
 | `control_plane_url` | e.g. `http://<alb-dns>.elb.amazonaws.com` | your ALB / domain |
 | `internal_api_key` | (leave empty → auto-generated) | — |
-| `kube_api_endpoint` | `https://<host>:<port>` from step 1 (any one cluster) | pinggy terminal output |
+| `kube_api_endpoint` | `https://<subdomain>.loca.lt` from step 1 (any one cluster) | localtunnel terminal output |
 | `kube_ca_cert` | **empty** (dev; see step 3) | — |
 | `kube_token` | that cluster's `makeway-worker` token from step 2 | `kubectl get secret ... | base64 -d` |
 | `github_owner` / `makeway_platform_repo` | as usual | GitHub |
@@ -259,20 +259,22 @@ From the Lambda's perspective the connection has three boundaries per cluster; t
 
 ```bash
 # 1. The tunnel is up and serving the kube-apiserver
-curl -k https://<host>:<port>/version
+curl -s https://<subdomain>.loca.lt/version -H "Bypass-Tunnel-Reminder: true"
 
 # 2. The bearer token is valid against it
-curl -k https://<host>:<port>/apis/makeway.io/v1beta1 \
+curl -s https://<subdomain>.loca.lt/apis/makeway.io/v1beta1 \
+  -H "Bypass-Tunnel-Reminder: true" \
   -H "Authorization: Bearer <KUBE_TOKEN>" -H "Accept: application/json"
 #    -> 200 {"kind":"APIResourceList", ...} — your RBAC allows listing the group
 
 # 3. The worker can read a namespace you'll use
-curl -k https://<host>:<port>/api/v1/namespaces/order-service-qa \
+curl -s https://<subdomain>.loca.lt/api/v1/namespaces/order-service-qa \
+  -H "Bypass-Tunnel-Reminder: true" \
   -H "Authorization: Bearer <KUBE_TOKEN>" -H "Accept: application/json"
 #    -> 200 with the Namespace object (or 404 if it doesn't exist yet — that's fine)
 ```
 
-If any of these fails, check: tunnel up? (`pinggy` still running / SSH session connected), endpoint host & port match?, token base64-decoded correctly? (`$ echo <KUBE_TOKEN> | base64 -d | jq .iss` should show the kube-apiserver's issuer)?
+If any of these fails, check: tunnel up? (localtunnel process still running — HTML answer instead of JSON often means the loca.lt consent page, add `Bypass-Tunnel-Reminder: true`), endpoint matches the printed URL?, token base64-decoded correctly? (`$ echo <KUBE_TOKEN> | base64 -d | jq .iss` should show the kube-apiserver's issuer)?
 
 ---
 
@@ -280,5 +282,5 @@ If any of these fails, check: tunnel up? (`pinggy` still running / SSH session c
 
 - **Least privilege the SA** — the Role above is the minimum the worker needs. Don't grant `cluster-admin`. Create it once **per cluster**.
 - **The token is long-lived.** Rotate it by deleting the token Secret and recreating it (same annotations), then **re-register the cluster** with the new token. Registered tokens live in the control-plane `cluster` table (RDS encryption-at-rest); never put them in git. Re-registration is idempotent so a rotation is just one `POST`.
-- **TLS verification stays OFF for the pinggy TCP setup** (`kube_ca_cert = ""`). That is dev-only — for a production control plane reaching a real cluster, put a TLS-terminating ingress in front of the apiserver and pin its CA (step 3).
-- **Firewall the tunnel if you can.** pinggy's free TCP tunnels don't expose `allow_cidrs`, and the apiserver itself still binds `127.0.0.1`, so the pinggy endpoint is the only public surface. The bearer token is the boundary — keep it out of git, and rotate it if the endpoint is ever exposed to strangers.
+- **TLS verification stays OFF for the localtunnel dev setup** (`kube_ca_cert = ""`). That is dev-only — for a production control plane reaching a real cluster, terminate TLS on a real hostname and pin its CA (step 3).
+- **The loca.lt URL is publicly reachable** by anyone who guesses the subdomain (no `allow_cidrs` on the free hosted server, and the apiserver itself still binds `127.0.0.1`). The bearer token is the boundary — keep it out of git, and rotate it if the endpoint is ever exposed to strangers.

@@ -38,7 +38,7 @@ class ClusterService:
 
         Idempotent by ``clusterName``: re-registering the same name on the same
         environment refreshes ``kubeApiEndpoint`` and any provided
-        token/CA (which is how a pinggy endpoint change after a tunnel restart
+        token/CA (which is how a tunnel endpoint change after a restart
         is applied). Re-registering the same name on a *different* environment
         is rejected — the environment is the routing key and a cluster must not
         silently move. A ``None`` token/CA on refresh leaves the persisted value
