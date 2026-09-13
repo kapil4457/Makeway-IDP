@@ -317,6 +317,13 @@ resource "aws_sfn_state_machine" "app_creation" {
             "execution_arn.$" = "$$.Execution.Id"
           }
         }
+        # The lambda:invoke SDK integration returns the raw InvokeResponse
+        # ({ExecutedVersion, Payload, SdkHttpMetadata, ...}) — the worker's
+        # actual return dict is nested under Payload. OutputPath unwraps it so
+        # the next state's input is the handler's payload itself (the contract
+        # every Parameters template below assumes: $.request_id / $.job_id /
+        # $.ready / $.attempt refer to handler return keys, not SDK fields).
+        OutputPath = "$.Payload"
         Retry = [
           {
             ErrorEquals     = ["Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.SdkClientException"]
@@ -346,6 +353,8 @@ resource "aws_sfn_state_machine" "app_creation" {
             "execution_arn.$" = "$$.Execution.Id"
           }
         }
+        # Unwrap the SDK InvokeResponse — see Step1 GitHub Setup.
+        OutputPath = "$.Payload"
         Retry = [
           {
             ErrorEquals     = ["Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.SdkClientException"]
@@ -382,6 +391,10 @@ resource "aws_sfn_state_machine" "app_creation" {
             "attempt.$"       = "$.attempt"
           }
         }
+        # Unwrap the SDK InvokeResponse — see Step1 GitHub Setup. The Ready? /
+        # Attempt? Choices and the Retry Pass read $.ready / $.attempt /
+        # $.request_id / $.job_id straight off this payload.
+        OutputPath = "$.Payload"
         Retry = [
           {
             ErrorEquals     = ["Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.SdkClientException", "States.Timeout"]
@@ -445,6 +458,8 @@ resource "aws_sfn_state_machine" "app_creation" {
             "execution_arn.$" = "$$.Execution.Id"
           }
         }
+        # Unwrap the SDK InvokeResponse — see Step1 GitHub Setup.
+        OutputPath = "$.Payload"
         Retry = [
           {
             ErrorEquals     = ["Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.SdkClientException"]
