@@ -58,12 +58,9 @@ jobs:
 
       - name: Require required TF_VAR inputs
         env:
-          MAKEWAY_CONTROL_PLANE_URL: ${{ vars.MAKEWAY_CONTROL_PLANE_URL }}
           MAKEWAY_KUBE_API_ENDPOINT: ${{ vars.MAKEWAY_KUBE_API_ENDPOINT }}
           MAKEWAY_KUBE_TOKEN: ${{ secrets.MAKEWAY_KUBE_TOKEN }}
         run: |
-          test -n "$MAKEWAY_CONTROL_PLANE_URL" \
-            || { echo "::error::Set MAKEWAY_CONTROL_PLANE_URL in repo Actions variables"; exit 1; }
           test -n "$MAKEWAY_KUBE_API_ENDPOINT" \
             || { echo "::error::Set MAKEWAY_KUBE_API_ENDPOINT in repo Actions variables"; exit 1; }
           test -n "$MAKEWAY_KUBE_TOKEN" \
@@ -74,7 +71,6 @@ jobs:
 
       - name: Terraform Plan Destroy
         env:
-          TF_VAR_control_plane_url: ${{ vars.MAKEWAY_CONTROL_PLANE_URL }}
           TF_VAR_kube_api_endpoint: ${{ vars.MAKEWAY_KUBE_API_ENDPOINT }}
           TF_VAR_kube_token: ${{ secrets.MAKEWAY_KUBE_TOKEN }}
           TF_VAR_kube_ca_cert: ${{ vars.MAKEWAY_KUBE_CA_CERT || '' }}
@@ -134,7 +130,6 @@ jobs:
 
       - name: Terraform Destroy
         env:
-          TF_VAR_control_plane_url: ${{ vars.MAKEWAY_CONTROL_PLANE_URL }}
           TF_VAR_kube_api_endpoint: ${{ vars.MAKEWAY_KUBE_API_ENDPOINT }}
           TF_VAR_kube_token: ${{ secrets.MAKEWAY_KUBE_TOKEN }}
           TF_VAR_kube_ca_cert: ${{ vars.MAKEWAY_KUBE_CA_CERT || '' }}

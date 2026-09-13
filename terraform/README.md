@@ -114,9 +114,10 @@ keys in GitHub:
   (`environment:makeway-infra-deploy` for apply, `ref:refs/heads/main` for
   plan) — the trust policy allows both.
 
-The control-plane URL is a Go repo Actions variable (`MAKEWAY_CONTROL_PLANE_URL`)
-surfaced as `TF_VAR_control_plane_url`, so the Step-1 Lambda knows where to
-report.
+The control-plane URL is derived in Terraform itself — workers reach the
+private control plane in-VPC via Cloud Map
+(`http://control-plane.makeway.internal:8000`, from the ECS service name +
+service-discovery namespace), so there is no CI variable for it.
 
 ## Application infrastructure is NOT here
 

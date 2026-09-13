@@ -354,9 +354,8 @@ How the plumbing works:
 
 - `terraform/terraform.tfvars` is **`.gitignore`d** (`*.tfvars`) — GitHub Actions
   never sees it. CI supplies the required Terraform inputs through `TF_VAR_*`
-  env vars wired into the workflows: `TF_VAR_control_plane_url`,
-  `TF_VAR_kube_api_endpoint`, `TF_VAR_kube_token` (+ optional
-  `TF_VAR_kube_ca_cert`) and `TF_VAR_ecs_image`.
+  env vars wired into the workflows: `TF_VAR_kube_api_endpoint`,
+  `TF_VAR_kube_token` (+ optional `TF_VAR_kube_ca_cert`) and `TF_VAR_ecs_image`.
 - Any secret whose tfvars default is `""` is **auto-generated on `apply`** and
   stored in encrypted terraform state — you do not configure it anywhere.
 - Everything else is either a GHA variable/secret or a local tfvars value — see
@@ -368,7 +367,6 @@ How the plumbing works:
 |---|---|---|---|
 | `AWS_ROLE_ARN` | secret | repo **Secrets** · Actions (or env-level on `makeway-infra-deploy`) | 🔒 **Secret** |
 | `AWS_REGION` | var | repo **Variables** · Actions | Variable |
-| `MAKEWAY_CONTROL_PLANE_URL` | var | repo **Variables** · Actions → `TF_VAR_control_plane_url` | Variable |
 | `DOCKERHUB_CONTROL_PLANE_IMAGE` | var | repo **Variables** · Actions (default `kapil4457/makeway-control-plane`) | Variable |
 | `kube_api_endpoint` | var | repo **Variables** · Actions → `TF_VAR_kube_api_endpoint` — **fallback/default cluster**; per-env endpoint comes from the control-plane Cluster registry | Variable |
 | `kube_token` | secret | repo **Secrets** · Actions → `TF_VAR_kube_token` — **fallback token** for clusters registered without one | 🔒 **Secret** |
@@ -393,7 +391,6 @@ How the plumbing works:
 |---|---|---|
 | `AWS_ROLE_ARN` | 🔒 Secret | `deploy-infra.yaml`, `destroy-infra.yaml`, `deploy-control-plane.yaml`, `deploy-frontend.yaml` — OIDC assume-role |
 | `AWS_REGION` | Variable | the deploy workflows above (default `ap-south-1`) |
-| `MAKEWAY_CONTROL_PLANE_URL` | Variable | the workflows above → `TF_VAR_control_plane_url` |
 | `MAKEWAY_KUBE_API_ENDPOINT` | Variable | the workflows above → `TF_VAR_kube_api_endpoint` |
 | `MAKEWAY_KUBE_TOKEN` | 🔒 Secret | the workflows above → `TF_VAR_kube_token` |
 | `MAKEWAY_KUBE_CA_CERT` | Variable | the workflows above → `TF_VAR_kube_ca_cert` (optional, empty = TLS off) |
@@ -422,7 +419,6 @@ How the plumbing works:
 
 | TF_VAR | GHA source | Kind |
 |---|---|---|
-| `TF_VAR_control_plane_url` | `MAKEWAY_CONTROL_PLANE_URL` | Variable — vestigial: workers reach the control plane in-VPC via Cloud Map, so the value is no longer consumed |
 | `TF_VAR_kube_api_endpoint` | `MAKEWAY_KUBE_API_ENDPOINT` | Variable |
 | `TF_VAR_kube_token` | `MAKEWAY_KUBE_TOKEN` | 🔒 Secret |
 | `TF_VAR_kube_ca_cert` | `MAKEWAY_KUBE_CA_CERT` | Variable (optional, default empty) |
@@ -464,7 +460,7 @@ is still the override if you ever apply from a machine.
 |---|---|---|---|---|
 | `GITHUB_OWNER` | top of handler | GitHub owner for app repos + platform repo | module Lambda env (var default) | — |
 | `GITHUB_TOKEN_SECRET_ID` | top of handler | Secrets Manager secret holding the PAT | module Lambda env | `makeway/github-pat` |
-| `CONTROL_PLANE_URL` | top of handler | Internal API base URL | module `var.control_plane_url` (← CI/local) | — |
+| `CONTROL_PLANE_URL` | top of handler | Internal API base URL | derived in Terraform — `local.worker_control_plane_url` (Cloud Map, in-VPC) | — |
 | `INTERNAL_API_KEY` | top of handler | Worker → control-plane shared key | module `var.internal_api_key` (auto-gen) | — |
 | `MAKEWAY_PLATFORM_REPO` | top of handler | Platform repo name | module env | `Makeway-IDP` |
 | `AWS_REGION` | top of handler | boto3 region | Lambda-managed | `ap-south-1` |

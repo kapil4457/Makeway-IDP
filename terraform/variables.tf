@@ -154,11 +154,8 @@ variable "github_owner" {
 
 # The GitHub PAT is not a variable here — it lives only in Secrets Manager
 # (populated out-of-band by the app_creation module's secret resource).
-
-variable "control_plane_url" {
-  description = "Vestigial: workers now reach the control plane in-VPC via Cloud Map (http://control-plane.makeway.internal:8000), so this value is no longer consumed by any resource. Kept declared because CI still passes TF_VAR_control_plane_url (and the guards check it)."
-  type        = string
-}
+# The control-plane URL is likewise not a variable: workers derive it from the
+# Cloud Map service name in main.tf (local.worker_control_plane_url).
 
 variable "internal_api_key" {
   description = "Shared secret for the control-plane internal API (X-Internal-API-Key). Leave empty to auto-generate on apply (stored in encrypted state). Must stay in sync with the control plane."

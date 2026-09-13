@@ -233,7 +233,6 @@ The `terraform.tfvars` kube values no longer drive per-env routing — they feed
 
 | `terraform.tfvars` var | Value | How to get it |
 |---|---|---|
-| `control_plane_url` | e.g. `http://<alb-dns>.elb.amazonaws.com` | your ALB / domain |
 | `internal_api_key` | (leave empty → auto-generated) | — |
 | `kube_api_endpoint` | `https://<subdomain>.loca.lt` from step 1 (any one cluster) | localtunnel terminal output |
 | `kube_ca_cert` | **empty** (dev; see step 3) | — |
