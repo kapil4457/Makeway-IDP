@@ -1,0 +1,14 @@
+# Image patch for test-service-7-1 in the uat environment.
+# The service's CI workflow rewrites the image line below when the branch that
+# promotes uat merges (feature/* -> qa, release/* -> uat, main -> prod);
+# ArgoCD rolls out the change.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: test-service-7-1
+spec:
+  template:
+    spec:
+      containers:
+        - name: test-service-7-1
+          image: makeway-placeholder/test-service-7-1:pending-first-build

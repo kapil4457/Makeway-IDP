@@ -1,0 +1,16 @@
+# Service for the test-service-7-1 golden-path service.
+apiVersion: v1
+kind: Service
+metadata:
+  name: test-service-7-1
+  labels:
+    app: test-service-7-1
+    managed-by: makeway
+spec:
+  selector:
+    app: test-service-7-1
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8000
+      protocol: TCP
