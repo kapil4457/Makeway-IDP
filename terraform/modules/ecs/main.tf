@@ -120,10 +120,18 @@ resource "aws_launch_template" "this" {
 }
 
 resource "aws_autoscaling_group" "this" {
-  name_prefix           = "${var.name}-"
-  min_size              = var.min_size
-  max_size              = var.max_size
-  desired_capacity      = var.desired_capacity
+  name_prefix = "${var.name}-"
+  min_size    = var.min_size
+  max_size    = var.max_size
+  # desired_capacity is deliberately NOT set: the ECS capacity provider's
+  # managed scaling (below) owns this ASG's size. Pinning it here made every
+  # apply fight the provider — during instance boot, pending tasks make the
+  # provider scale out (one instance per evaluation), so the ASG sits at 2
+  # while Terraform demanded exactly 1 healthy instance, and the scale-in
+  # needed to shed the surplus is blocked by instance protection (required by
+  # managed_termination_protection). With the attribute omitted, Terraform
+  # neither writes nor waits on desired capacity and the provider converges
+  # it (drain -> unprotect -> terminate). min/max remain the guardrails.
   vpc_zone_identifier   = var.subnet_ids
   protect_from_scale_in = true
 

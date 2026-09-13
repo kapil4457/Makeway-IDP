@@ -65,11 +65,9 @@ variable "max_size" {
   default     = 2
 }
 
-variable "desired_capacity" {
-  description = "Start size of the Auto Scaling group; managed scaling adjusts from here."
-  type        = number
-  default     = 1
-}
+# No desired_capacity variable: the ASG's size is owned by the ECS capacity
+# provider's managed scaling (see the aws_autoscaling_group resource in
+# main.tf). Pinning it made Terraform fight the provider on every apply.
 
 variable "environment" {
   description = "Environment variables passed to the container."
