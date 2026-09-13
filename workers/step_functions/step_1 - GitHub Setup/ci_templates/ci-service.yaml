@@ -67,8 +67,10 @@ jobs:
       # patch file for the resolved environment ONLY
       # (argocd/apps/<app>/envs/<env>/<service>-patch.yaml). Other tiers keep
       # their current image; each env is promoted by its own branch.
+      # NOTE: the credentials guard lives in the script, not an `if:` — GitHub
+      # Actions rejects the `secrets` context inside if-expressions (workflow
+      # fails to parse), while env-set values can be checked in bash.
       - name: Update image tag in Makeway gitops
-        if: ${{ vars.DOCKERHUB_IMAGE != '' && secrets.GITOPS_PAT != '' }}
         env:
           GITOPS_PAT: ${{ secrets.GITOPS_PAT }}
           GITOPS_REPO: __GITOPS_REPO__
@@ -78,6 +80,10 @@ jobs:
           TARGET_ENV: ${{ steps.env.outputs.TARGET_ENV }}
         run: |
           set -euo pipefail
+          if [ -z "${GITOPS_PAT}" ] || [ -z "${DOCKERHUB_IMAGE}" ]; then
+            echo "Skipping gitops bump: DOCKERHUB_IMAGE/GITOPS_PAT not configured on this repo."
+            exit 0
+          fi
           TMP_DIR="$(mktemp -d)"
           git clone --depth 1 "https://x-access-token:${GITOPS_PAT}@github.com/${GITOPS_REPO}.git" "${TMP_DIR}/platform"
           cd "${TMP_DIR}/platform"
