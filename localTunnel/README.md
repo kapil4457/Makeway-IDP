@@ -23,7 +23,7 @@ The kube-apiserver binds to `127.0.0.1:6443` (kind). localtunnel gives it a
 public HTTPS endpoint:
 
 ```bash
-npx localtunnel --port 6443 --local-https --allow-invalid-cert --subdomain makeway-kube
+npx localtunnel --port 6443 --local-https --allow-invalid-cert --subdomain makeway-kube-prod
 # -> https://makeway-kube.loca.lt
 ```
 

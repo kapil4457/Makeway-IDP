@@ -57,7 +57,7 @@ The kube-apiserver by default **binds to `127.0.0.1:6443`** (e.g. `k3d cluster c
 **Start the tunnel** (see [localTunnel/README.md](../../localTunnel/README.md) for the full runbook):
 
 ```bash
-npx localtunnel --port 6443 --local-https --allow-invalid-cert --subdomain makeway-kube
+npx localtunnel --port 6443 --local-https --allow-invalid-cert --subdomain makeway-kube-prod
 # -> https://makeway-kube.loca.lt
 ```
 
