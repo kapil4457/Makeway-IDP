@@ -1,0 +1,14 @@
+# Image patch for test-service-8-2 in the qa environment.
+# The service's CI workflow rewrites the image line below when the branch that
+# promotes qa merges (feature/* -> qa, release/* -> uat, main -> prod);
+# ArgoCD rolls out the change.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: test-service-8-2
+spec:
+  template:
+    spec:
+      containers:
+        - name: test-service-8-2
+          image: makeway-placeholder/test-service-8-2:pending-first-build
