@@ -15,8 +15,11 @@
 # cluster. Per-environment endpoint/token/CA are registered per cluster in the
 # control-plane Cluster registry (POST /cluster/register) and resolved by the
 # Step-2 Lambda at runtime.
-# Secrets (internal_api_key, github_pat) are auto-generated / stored in Secrets
-# Manager and never passed through CI.
+# Secrets: internal_api_key is auto-generated on first apply. The GitHub PAT is
+# NOT a variable at all — after apply, populate it once (out-of-band, never in
+# tfvars or CI):
+#   aws secretsmanager put-secret-value \
+#     --secret-id makeway/github-pat --secret-string "ghp_..."
 # For a local deploy supply the non-secret overrides you care about, e.g.:
 #   control_plane_url = "http://<alb-dns>.elb.amazonaws.com"
 #   github_owner      = "kapil4457"

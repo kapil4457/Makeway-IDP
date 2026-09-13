@@ -134,7 +134,6 @@ module "app_creation" {
   name                  = "makeway-app-creation-step1"
   handler_source_dir    = "../workers/step_functions/step_1 - GitHub Setup"
   github_owner          = var.github_owner
-  github_pat            = var.github_pat
   control_plane_url     = local.worker_control_plane_url
   internal_api_key      = local.internal_api_key
   makeway_platform_repo = var.makeway_platform_repo

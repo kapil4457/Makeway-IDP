@@ -238,7 +238,8 @@ The `terraform.tfvars` kube values no longer drive per-env routing — they feed
 | `kube_api_endpoint` | `https://<host>:<port>` from step 1 (any one cluster) | pinggy terminal output |
 | `kube_ca_cert` | **empty** (dev; see step 3) | — |
 | `kube_token` | that cluster's `makeway-worker` token from step 2 | `kubectl get secret ... | base64 -d` |
-| `github_owner` / `github_pat` / `makeway_platform_repo` | as usual | GitHub |
+| `github_owner` / `makeway_platform_repo` | as usual | GitHub |
+| (no `github_pat` var) | the PAT lives only in Secrets Manager: `aws secretsmanager put-secret-value --secret-id makeway/github-pat --secret-string "ghp_…"` once, before first app creation | AWS CLI |
 | `rds_publicly_accessible` | `true` for the local cluster / `false` for EKS | — |
 | `rds_ingress_cidr` | empty = platform VPC CIDR from SSM (EKS); your machine's public IP (local cluster) | `curl ifconfig.me` |
 

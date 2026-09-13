@@ -37,18 +37,20 @@ data "archive_file" "step2" {
 }
 
 # --- GitHub PAT (Secrets Manager) --------------------------------------------
-# Read by the Step-1 Lambda at runtime — never baked into images or repos.
-# Supply var.github_pat with a real PAT (classic token, repo + workflow) in
-# tfvars before first use; until then the secret holds an empty string and
-# GitHub calls fail loudly (401) rather than silently misbehaving.
+# Read by the Step-1 Lambda at runtime — never baked into images or repos, and
+# deliberately NOT put through CI or tfvars: Terraform owns the secret
+# CONTAINER only. Populate the VALUE once, out-of-band (rotate by re-running):
+#
+#   aws secretsmanager put-secret-value \
+#     --secret-id <var.github_token_secret_name> \
+#     --secret-string "ghp_..."
+#
+# Until then GitHub calls fail loudly (401 / missing secret) rather than
+# silently misbehaving. A terraform-managed empty version is impossible anyway
+# — the API rejects a PutSecretValue with neither SecretString nor SecretBinary.
 resource "aws_secretsmanager_secret" "github_pat" {
   name        = var.github_token_secret_name
   description = "GitHub PAT used by the Makeway Step-1 worker (repo creation + gitops PRs)."
-}
-
-resource "aws_secretsmanager_secret_version" "github_pat" {
-  secret_id     = aws_secretsmanager_secret.github_pat.id
-  secret_string = var.github_pat
 }
 
 # --- IAM — Step-1 Lambda ------------------------------------------------------

@@ -243,8 +243,9 @@ resource "aws_ecs_service" "this" {
   dynamic "service_registries" {
     for_each = var.service_registry_arn == null ? [] : [var.service_registry_arn]
     content {
+      # No `port` here: the registry is an A-record (MULTIVALUE) service, and
+      # ECS rejects a Port for A records (it's only meaningful for SRV).
       registry_arn = service_registries.value
-      port         = var.container_port
     }
   }
 

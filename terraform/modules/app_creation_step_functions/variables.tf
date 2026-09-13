@@ -13,12 +13,9 @@ variable "github_owner" {
   type        = string
 }
 
-variable "github_pat" {
-  description = "GitHub PAT (repo + workflow scopes) stored in Secrets Manager. Leave empty and set the secret value before first use."
-  type        = string
-  sensitive   = true
-  default     = ""
-}
+# The GitHub PAT itself is NOT a variable — Terraform owns the secret container
+# only; the value is populated out-of-band (see the secret resource in main.tf),
+# so it never passes through tfvars or CI.
 
 variable "github_token_secret_name" {
   description = "Name of the Secrets Manager secret holding the GitHub PAT."

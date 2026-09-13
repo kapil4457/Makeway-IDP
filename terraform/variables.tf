@@ -152,12 +152,8 @@ variable "github_owner" {
   default     = "kapil4457"
 }
 
-variable "github_pat" {
-  description = "GitHub PAT (repo + workflow scopes) used to create app repos and open gitops PRs. Stored in Secrets Manager. Leave empty: the secret is created empty and must be set before first use."
-  type        = string
-  sensitive   = true
-  default     = ""
-}
+# The GitHub PAT is not a variable here — it lives only in Secrets Manager
+# (populated out-of-band by the app_creation module's secret resource).
 
 variable "control_plane_url" {
   description = "Vestigial: workers now reach the control plane in-VPC via Cloud Map (http://control-plane.makeway.internal:8000), so this value is no longer consumed by any resource. Kept declared because CI still passes TF_VAR_control_plane_url (and the guards check it)."

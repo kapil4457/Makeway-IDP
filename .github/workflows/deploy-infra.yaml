@@ -70,12 +70,26 @@ jobs:
           path: terraform/modules/sqs_consumer/dist/makeway-app-creation-consumer.zip
           if-no-files-found: error
 
-      # - name: Upload step-1 function package
-      #   uses: actions/upload-artifact@v4
-      #   with:
-      #     name: step1-zip
-      #     path: terraform/modules/app_creation_step_functions/dist/makeway-app-creation-step1.zip
-      #     if-no-files-found: error
+      - name: Upload step-1 function package
+        uses: actions/upload-artifact@v4
+        with:
+          name: step1-zip
+          path: terraform/modules/app_creation_step_functions/dist/makeway-app-creation-step1.zip
+          if-no-files-found: error
+
+      - name: Upload step-2 function package
+        uses: actions/upload-artifact@v4
+        with:
+          name: step2-zip
+          path: terraform/modules/app_creation_step_functions/dist/makeway-app-creation-step2.zip
+          if-no-files-found: error
+
+      - name: Upload health-reporter function package
+        uses: actions/upload-artifact@v4
+        with:
+          name: health-reporter-zip
+          path: terraform/modules/health_reporter/dist/makeway-argocd-health-reporter.zip
+          if-no-files-found: error
 
       - name: Upload plan artifact
         uses: actions/upload-artifact@v4
@@ -127,11 +141,23 @@ jobs:
           name: consumer-zip
           path: terraform/modules/sqs_consumer/dist/
 
-      # - name: Download step-1 function package
-      #   uses: actions/download-artifact@v4
-      #   with:
-      #     name: step1-zip
-      #     path: terraform/modules/app_creation_step_functions/dist/
+      - name: Download step-1 function package
+        uses: actions/download-artifact@v4
+        with:
+          name: step1-zip
+          path: terraform/modules/app_creation_step_functions/dist/
+
+      - name: Download step-2 function package
+        uses: actions/download-artifact@v4
+        with:
+          name: step2-zip
+          path: terraform/modules/app_creation_step_functions/dist/
+
+      - name: Download health-reporter function package
+        uses: actions/download-artifact@v4
+        with:
+          name: health-reporter-zip
+          path: terraform/modules/health_reporter/dist/
 
       - name: Terraform Init
         working-directory: terraform
