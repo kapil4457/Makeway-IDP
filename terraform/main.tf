@@ -120,6 +120,17 @@ resource "aws_security_group" "workers" {
   name        = "makeway-workers"
   description = "Makeway worker Lambdas (app-creation steps, health reporter)"
   vpc_id      = module.vpc.vpc_id
+
+  # Explicit egress is REQUIRED: with no egress block, the AWS provider strips
+  # the default allow-all egress rule AWS attaches to new SGs, leaving the
+  # Lambda ENIs unable to send a single packet (workers→control-plane:8000
+  # times out, and so does GitHub/SSM/kube traffic through the NAT).
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
 }
 
 # --- App-creation workflow — Step 1 (GitHub Setup) ---
