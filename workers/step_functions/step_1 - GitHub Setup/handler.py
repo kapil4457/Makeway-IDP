@@ -512,22 +512,41 @@ def _push_tree(
     return True
 
 
-def _ensure_branch(repo: str, branch: str) -> None:
-    """Create ``branch`` from ``main`` if it doesn't exist. Idempotent."""
+def _sync_branch_with_main(repo: str, branch: str) -> None:
+    """Point the app's long-lived gitops branch at ``main``'s current head.
+
+    The branch is reused across every gitops push for an app and its PRs are
+    squash-merged. After a manual merge that leaves the branch in place, the
+    branch still sits on its pre-merge commits while main has moved on, and
+    GitHub diffs PRs from the merge-base — so the next push's diff cancels
+    against the branch's own history: a teardown PR whose removal commit
+    offsets the earlier setup commit shows "no changes" and merges as an
+    empty commit that removes nothing (seen live: PR merged, tree survived
+    on main). Re-pointing the branch at main before every push keeps the PR
+    diff equal to the actual desired change. A branch that is missing is
+    created from main, as before.
+    """
+    main_sha = _gh("GET", f"/repos/{GITHUB_OWNER}/{repo}/git/refs/heads/main")["object"]["sha"]
     status, body = _gh_status("GET", f"/repos/{GITHUB_OWNER}/{repo}/git/refs/heads/{branch}")
-    if status == 200:
-        return
     if status == 404:
-        main_ref = _gh("GET", f"/repos/{GITHUB_OWNER}/{repo}/git/refs/heads/main")
         _gh(
             "POST",
             f"/repos/{GITHUB_OWNER}/{repo}/git/refs",
-            {"ref": f"refs/heads/{branch}", "sha": main_ref["object"]["sha"]},
+            {"ref": f"refs/heads/{branch}", "sha": main_sha},
         )
         logger.info("[%s] created branch %s from main", repo, branch)
         return
-    detail = json.dumps(body)[:500] if isinstance(body, (dict, list)) else str(body)
-    raise RuntimeError(f"GET refs/heads/{branch} on {repo} -> HTTP {status}: {detail}")
+    if status != 200:
+        detail = json.dumps(body)[:500] if isinstance(body, (dict, list)) else str(body)
+        raise RuntimeError(f"GET refs/heads/{branch} on {repo} -> HTTP {status}: {detail}")
+    if body["object"]["sha"] == main_sha:
+        return
+    _gh(
+        "PATCH",
+        f"/repos/{GITHUB_OWNER}/{repo}/git/refs/heads/{branch}",
+        {"sha": main_sha, "force": True},
+    )
+    logger.info("[%s] reset stale branch %s to main", repo, branch)
 
 
 # --------------------------------------------------------------------------- #
@@ -977,7 +996,7 @@ def _publish_gitops_to_platform(
     tree already matches and the PR is merged, nothing is pushed.
     """
     branch = f"makeway/apps/{app_name}"
-    _ensure_branch(MAKEWAY_PLATFORM_REPO, branch)
+    _sync_branch_with_main(MAKEWAY_PLATFORM_REPO, branch)
     changed = _push_tree(
         MAKEWAY_PLATFORM_REPO,
         files,

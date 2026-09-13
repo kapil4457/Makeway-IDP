@@ -22,6 +22,11 @@ import re
 import sys
 from pathlib import Path
 
+# Console codepages (cp1252 etc.) choke on non-ASCII check details — keep
+# output printable regardless of the terminal's encoding.
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
 # The handler reads its configuration at import time — supply dummy values so
 # the module is importable without a live environment (no secret/network call
 # happens at import).
@@ -649,6 +654,207 @@ check(
 check(
     "module reads APP_REPO_CI_SECRET_ID from the environment",
     'APP_REPO_CI_SECRET_ID = os.environ.get(' in _source,
+)
+
+# 16. _publish_gitops_to_platform on a stale branch — the PR #2 regression:
+#     the teardown push landed on the leftover setup branch, GitHub diffed the
+#     PR from the merge-base, the removal commit canceled the setup commit,
+#     and the squash-merge was an empty commit that removed nothing. The fix
+#     re-points the branch at main before every push, so the removal commit is
+#     based on main and the PR diff is the actual deletion.
+_saved_pub_gh, _saved_pub_gh_status, _saved_identity = m._gh, m._gh_status, m._git_identity_cache
+_PUB_REPO = m.MAKEWAY_PLATFORM_REPO
+_PUB_BRANCH = "makeway/apps/stale-app"
+_PUB_MAIN_SHA = "m" * 40
+_PUB_STALE_SHA = "a" * 40
+_PUB_APP_FILES = {
+    "argocd/apps/stale-app/README.md": "blob-readme",
+    "argocd/apps/stale-app/envs/qa/kustomization.yaml": "blob-kust",
+}
+_PUB_OTHER_FILES = {"argocd/other.yaml": "blob-other"}
+_PUB_REMOVAL_TITLE = "makeway: remove ArgoCD setup for stale-app"
+
+
+class _FakeGitHost:
+    """In-memory git-database + PR API just wide enough for the publish flow.
+
+    Any call outside the expected surface raises, so a silent flow change
+    fails loudly instead of asserting on stale data.
+    """
+
+    def __init__(self, refs):
+        self.refs = dict(refs)  # branch name -> head sha ("main" included)
+        self.trees = {}         # sha -> {path: blob sha}
+        self.calls = []         # (method, path, payload) in order
+        self.n = 0
+
+    def _new_sha(self, tag):
+        self.n += 1
+        return f"{tag}{self.n:03d}".ljust(40, "0")
+
+    @staticmethod
+    def _branch_of(path):
+        """Everything after ``refs/heads/`` — branch names contain slashes."""
+        return path.split("/git/refs/heads/", 1)[1]
+
+    @staticmethod
+    def _tail(path):
+        return path.rsplit("/", 1)[-1]
+
+    def gh(self, method, path, payload=None, params=None):
+        self.calls.append((method, path, payload))
+        if method == "GET" and "/git/refs/heads/" in path:
+            branch = self._branch_of(path)
+            if branch not in self.refs:
+                raise AssertionError(f"unexpected ref GET (no such branch): {path}")
+            return {"object": {"sha": self.refs[branch]}}
+        if method == "GET" and "/git/trees/" in path:
+            sha = self._tail(path)
+            return {"sha": sha,
+                    "tree": [{"path": p, "type": "blob", "sha": s} for p, s in self.trees[sha].items()]}
+        if method == "POST" and path.endswith("/git/trees"):
+            return {"sha": self._new_sha("t")}
+        if method == "POST" and path.endswith("/git/commits"):
+            return {"sha": self._new_sha("c")}
+        if method == "POST" and path.endswith("/git/refs"):
+            self.refs[payload["ref"].split("refs/heads/", 1)[1]] = payload["sha"]
+            return {}
+        if method == "PATCH" and "/git/refs/heads/" in path:
+            self.refs[self._branch_of(path)] = payload["sha"]
+            return {}
+        if method == "GET" and path.endswith("/pulls"):
+            return []
+        if method == "POST" and path.endswith("/pulls"):
+            return {"number": 7, "html_url": "http://pr/7"}
+        raise AssertionError(f"unexpected _gh call: {method} {path}")
+
+    def gh_status(self, method, path, payload=None, params=None):
+        self.calls.append((method, path, payload))
+        if method == "GET" and "/git/refs/heads/" in path:
+            branch = self._branch_of(path)
+            if branch in self.refs:
+                return 200, {"object": {"sha": self.refs[branch]}}
+            return 404, {}
+        if method == "PUT" and "/pulls/7/merge" in path:
+            return 200, {"merged": True}
+        raise AssertionError(f"unexpected _gh_status call: {method} {path}")
+
+    def calls_of(self, method, suffix):
+        return [(i, p, pl) for i, (me, p, pl) in enumerate(self.calls)
+                if me == method and p.endswith(suffix)]
+
+
+def _run_publish(host):
+    m._gh, m._gh_status = host.gh, host.gh_status
+    return m._remove_gitops(
+        "stale-app",
+        prefixes=["argocd/apps/stale-app/"],
+        message=_PUB_REMOVAL_TITLE,
+        pr_title=_PUB_REMOVAL_TITLE,
+    )
+
+
+try:
+    m._git_identity_cache = {"name": "makeway-bot", "email": "1+makeway-bot@users.noreply.github.com"}
+
+    # (a) Stale branch — the live failure. Branch head is the leftover setup
+    #     commit while main has moved on: must force-reset, then delete from
+    #     MAIN's tree so the PR diff is the deletion itself.
+    host = _FakeGitHost({"main": _PUB_MAIN_SHA, _PUB_BRANCH: _PUB_STALE_SHA})
+    host.trees[_PUB_MAIN_SHA] = {**_PUB_APP_FILES, **_PUB_OTHER_FILES}
+    host.trees[_PUB_STALE_SHA] = {**_PUB_APP_FILES, **_PUB_OTHER_FILES}
+    result = _run_publish(host)
+
+    patches = host.calls_of("PATCH", f"/git/refs/heads/{_PUB_BRANCH}")
+    tree_posts = host.calls_of("POST", "/git/trees")
+    commit_posts = host.calls_of("POST", "/git/commits")
+    pr_posts = host.calls_of("POST", "/pulls")
+    check("stale branch: force-reset issued before the push", bool(patches), str(host.calls))
+    check(
+        "reset PATCH carries main's sha and force",
+        bool(patches) and patches[0][2] == {"sha": _PUB_MAIN_SHA, "force": True},
+        str(patches),
+    )
+    check(
+        "reset happens before the tree POST",
+        bool(patches and tree_posts) and patches[0][0] < tree_posts[0][0],
+        str(host.calls),
+    )
+    check(
+        "teardown tree deletes exactly the app paths (sha: null)",
+        bool(tree_posts)
+        and {e["path"]: e["sha"] for e in tree_posts[0][2]["tree"]}
+        == {p: None for p in _PUB_APP_FILES},
+        str(tree_posts),
+    )
+    check(
+        "teardown tree bases on main",
+        bool(tree_posts) and tree_posts[0][2]["base_tree"] == _PUB_MAIN_SHA,
+        str(tree_posts),
+    )
+    check(
+        "removal commit is based on main (not the stale head)",
+        bool(commit_posts) and commit_posts[0][2]["parents"] == [_PUB_MAIN_SHA],
+        str(commit_posts),
+    )
+    check(
+        "branch ref advances to the new commit (no force)",
+        len(patches) == 2 and set(patches[1][2]) == {"sha"},
+        str(patches),
+    )
+    check(
+        "removal PR created head->main with the removal title",
+        bool(pr_posts)
+        and pr_posts[0][2]["title"] == _PUB_REMOVAL_TITLE
+        and pr_posts[0][2]["head"] == _PUB_BRANCH
+        and pr_posts[0][2]["base"] == "main",
+        str(pr_posts),
+    )
+    check("stale-branch teardown reports merged", result == {"merged": True, "pr_url": "http://pr/7"}, str(result))
+
+    # (b) Missing branch: still created from main, never force-patched (the
+    #     only PATCH is _push_tree's ref-advance, which carries just "sha").
+    host = _FakeGitHost({"main": _PUB_MAIN_SHA})
+    host.trees[_PUB_MAIN_SHA] = {**_PUB_APP_FILES, **_PUB_OTHER_FILES}
+    _run_publish(host)
+    creates = host.calls_of("POST", "/git/refs")
+    patches_b = host.calls_of("PATCH", f"/git/refs/heads/{_PUB_BRANCH}")
+    check(
+        "missing branch: created from main, never force-patched",
+        bool(creates)
+        and creates[0][2] == {"ref": f"refs/heads/{_PUB_BRANCH}", "sha": _PUB_MAIN_SHA}
+        and len(patches_b) == 1 and set(patches_b[0][2]) == {"sha"},
+        str(host.calls),
+    )
+
+    # (c) Branch already at main: no reset chatter, removal still lands.
+    host = _FakeGitHost({"main": _PUB_MAIN_SHA, _PUB_BRANCH: _PUB_MAIN_SHA})
+    host.trees[_PUB_MAIN_SHA] = {**_PUB_APP_FILES, **_PUB_OTHER_FILES}
+    _run_publish(host)
+    patches = host.calls_of("PATCH", f"/git/refs/heads/{_PUB_BRANCH}")
+    commit_posts = host.calls_of("POST", "/git/commits")
+    check(
+        "synced branch: only the ref-advance PATCH, commit still based on main",
+        len(patches) == 1 and "force" not in patches[0][2]
+        and bool(commit_posts) and commit_posts[0][2]["parents"] == [_PUB_MAIN_SHA],
+        str(host.calls),
+    )
+finally:
+    m._gh, m._gh_status, m._git_identity_cache = _saved_pub_gh, _saved_pub_gh_status, _saved_identity
+
+# 17. Static contract: the publish flow must sync the branch with main before
+#     pushing — a revert to the old create-only ensure re-opens the
+#     empty-teardown-PR regression (PR #2: merged, removed nothing).
+_source = re.sub(r"(?m)^\s*#.*$", "", H.read_text(encoding="utf-8"))
+_sync_call = re.search(r"_sync_branch_with_main\(MAKEWAY_PLATFORM_REPO, branch\)", _source)
+_push_tree_call = re.search(r"changed\s*=\s*_push_tree\(", _source)
+check(
+    "publish flow syncs branch with main before pushing",
+    bool(_sync_call and _push_tree_call) and _sync_call.start() < _push_tree_call.start(),
+)
+check(
+    "branch sync force-moves stale branches",
+    '"force": True' in _source,
 )
 
 print()
