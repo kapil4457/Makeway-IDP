@@ -10,6 +10,12 @@
 # The generated Application names ({{app}}-<env>) are unchanged from the old
 # global set, so existing DeploymentSetup.argocdAppName records stay valid.
 #
+# goTemplate: true selects Go's text/template engine, so params use the leading
+# dot (`{{ .path.path }}`) and indexed segments are `{{ index .path.segments 2 }}`
+# (segments of argocd/apps/<app>/envs/qa: 0=argocd 1=apps 2=<app> 3=envs 4=qa).
+# The legacy fasttemplate forms — `{{ path }}`, `{{ path[2] }}` — fail Go's
+# parser ("bad character U+005B '['") and generate 0 applications.
+#
 #   kubectl apply -k argocd/clusters/qa
 apiVersion: argoproj.io/v1alpha1
 kind: ApplicationSet
@@ -26,10 +32,10 @@ spec:
           - path: argocd/apps/*/envs/qa
   template:
     metadata:
-      name: '{{ path[2] }}-qa'
+      name: '{{ index .path.segments 2 }}-qa'
       namespace: argocd
       labels:
-        app: '{{ path[2] }}'
+        app: '{{ index .path.segments 2 }}'
         environment: qa
         managed-by: makeway
     spec:
@@ -37,10 +43,10 @@ spec:
       source:
         repoURL: https://github.com/kapil4457/Makeway-IDP
         targetRevision: main
-        path: '{{ path }}'
+        path: '{{ .path.path }}'
       destination:
         server: https://kubernetes.default.svc
-        namespace: '{{ path[2] }}-qa'
+        namespace: '{{ index .path.segments 2 }}-qa'
       syncPolicy:
         automated:
           prune: true

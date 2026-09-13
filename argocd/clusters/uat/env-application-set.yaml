@@ -18,10 +18,10 @@ spec:
           - path: argocd/apps/*/envs/uat
   template:
     metadata:
-      name: '{{ path[2] }}-uat'
+      name: '{{ index .path.segments 2 }}-uat'
       namespace: argocd
       labels:
-        app: '{{ path[2] }}'
+        app: '{{ index .path.segments 2 }}'
         environment: uat
         managed-by: makeway
     spec:
@@ -29,10 +29,10 @@ spec:
       source:
         repoURL: https://github.com/kapil4457/Makeway-IDP
         targetRevision: main
-        path: '{{ path }}'
+        path: '{{ .path.path }}'
       destination:
         server: https://kubernetes.default.svc
-        namespace: '{{ path[2] }}-uat'
+        namespace: '{{ index .path.segments 2 }}-uat'
       syncPolicy:
         automated:
           prune: true
