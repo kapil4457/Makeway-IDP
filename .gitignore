@@ -9,6 +9,8 @@ env/
 *.pfx
 *.jks
 *.keystore
+# kind admin kubeconfig for the dev tunnel (holds cluster-admin cert+key)
+localTunnel/kubeconfig.yaml
 
 # ---- Python (control plane) ----
 .venv/
