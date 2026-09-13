@@ -351,6 +351,81 @@ finally:
     m._github_token = _saved_github_token
     m._http = _saved_http
 
+# 13. _ensure_repo — the create call must match the owner's account kind.
+#     Regression: it unconditionally POSTed /orgs/<owner>/repos, which is a
+#     hard 404 ("Not Found") when GITHUB_OWNER is a personal account like
+#     kapil4457 — that endpoint only exists for real organizations.
+saved_gh, saved_gh_status = m._gh, m._gh_status
+try:
+
+    def _install_gh(repo_status, owner_type=None, token_login=None, repo="orders-app"):
+        """Stub the GitHub layer. Returns the list of _gh() POST paths."""
+        posts = []
+
+        def fake_gh(method, path, payload=None, params=None):
+            posts.append(path)
+            return {"full_name": f"{m.GITHUB_OWNER}/{repo}", "name": repo}
+
+        def fake_gh_status(method, path, payload=None):
+            if method == "GET" and path == f"/repos/{m.GITHUB_OWNER}/{repo}":
+                return repo_status, {"name": repo}
+            if owner_type is not None and method == "GET" and path == f"/users/{m.GITHUB_OWNER}":
+                return 200, {"login": m.GITHUB_OWNER, "type": owner_type}
+            if token_login is not None and method == "GET" and path == "/user":
+                return 200, {"login": token_login, "id": 1}
+            return 500, {"message": "unexpected path in test stub"}
+
+        m._gh, m._gh_status = fake_gh, fake_gh_status
+        return posts
+
+    posts = _install_gh(200)
+    m._ensure_repo("orders-app")
+    check("existing repo is reused without a create POST", posts == [], str(posts))
+
+    posts = _install_gh(404, owner_type="User", token_login=m.GITHUB_OWNER)
+    m._ensure_repo("orders-app")
+    check(
+        "personal-account owner creates via POST /user/repos",
+        posts == ["/user/repos"],
+        str(posts),
+    )
+
+    posts = _install_gh(404, owner_type="Organization", token_login="some-bot")
+    m._ensure_repo("orders-app")
+    check(
+        "organization owner creates via POST /orgs/<owner>/repos",
+        posts == [f"/orgs/{m.GITHUB_OWNER}/repos"],
+        str(posts),
+    )
+
+    posts = _install_gh(404, owner_type="User", token_login="someone-else")
+    try:
+        m._ensure_repo("orders-app")
+        check("PAT/owner mismatch raises", False, "no exception raised")
+    except RuntimeError as exc:
+        check(
+            "PAT/owner mismatch raises a clear error and never POSTs",
+            "not an organization" in str(exc) and posts == [],
+            f"{exc} posts={posts}",
+        )
+    except Exception as exc:  # noqa: BLE001
+        check("PAT/owner mismatch raises RuntimeError", False, repr(exc))
+
+    posts = _install_gh(403)
+    try:
+        m._ensure_repo("orders-app")
+        check("non-404 on existence GET raises", False, "no exception raised")
+    except RuntimeError as exc:
+        check(
+            "non-404 on existence GET raises without a create POST",
+            "HTTP 403" in str(exc) and posts == [],
+            f"{exc} posts={posts}",
+        )
+    except Exception as exc:  # noqa: BLE001
+        check("non-404 on existence GET raises RuntimeError", False, repr(exc))
+finally:
+    m._gh, m._gh_status = saved_gh, saved_gh_status
+
 print()
 if fails:
     sys.exit("FAILED: " + ", ".join(fails))

@@ -278,21 +278,45 @@ def _ensure_repo(repo: str):
         logger.info("repo %s already exists — reusing", repo)
         return
     if status == 404:
-        created = _gh(
-            "POST",
-            f"/orgs/{GITHUB_OWNER}/repos",
-            {
-                "name": repo,
-                "description": f"Makeway app '{repo}' (generated)",
-                "private": False,
-                "auto_init": True,
-                "default_branch": "main",
-                "has_issues": False,
-                "has_projects": False,
-                "has_wiki": False,
-            },
+        payload = {
+            "name": repo,
+            "description": f"Makeway app '{repo}' (generated)",
+            "private": False,
+            "auto_init": True,
+            "default_branch": "main",
+            "has_issues": False,
+            "has_projects": False,
+            "has_wiki": False,
+        }
+        # Repo creation is endpoint-split: organizations POST /orgs/<owner>/repos,
+        # but a personal-account owner (a user login, not an org) must POST
+        # /user/repos — /orgs/<user-login>/repos is a hard 404 ("Not Found")
+        # because GitHub only serves it for real organizations. One probe
+        # classifies the owner: /users/<login> answers for BOTH account kinds
+        # (type "User" or "Organization").
+        owner_status, owner_obj = _gh_status("GET", f"/users/{GITHUB_OWNER}")
+        is_org = (
+            owner_status == 200
+            and isinstance(owner_obj, dict)
+            and owner_obj.get("type") == "Organization"
         )
-        logger.info("created repo %s", created["full_name"])
+        if is_org:
+            path = f"/orgs/{GITHUB_OWNER}/repos"
+        else:
+            # /user/repos always creates under the authenticated user — verify
+            # that's actually GITHUB_OWNER, or the app repo would land in the
+            # wrong account and every later /repos/<owner>/<repo> call 404.
+            user_status, user_obj = _gh_status("GET", "/user")
+            token_login = user_obj.get("login") if user_status == 200 and isinstance(user_obj, dict) else None
+            if token_login != GITHUB_OWNER:
+                raise RuntimeError(
+                    f"cannot create repo '{repo}': GITHUB_OWNER '{GITHUB_OWNER}' is "
+                    f"not an organization and the PAT belongs to '{token_login}' — "
+                    f"personal-account repos need the PAT's user to match GITHUB_OWNER"
+                )
+            path = "/user/repos"
+        created = _gh("POST", path, payload)
+        logger.info("created repo %s via POST %s", created["full_name"], path)
         return
     detail = json.dumps(body)[:500] if isinstance(body, (dict, list)) else str(body)
     raise RuntimeError(f"GET /repos/{GITHUB_OWNER}/{repo} -> HTTP {status}: {detail}")
