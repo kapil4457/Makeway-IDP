@@ -144,7 +144,12 @@ def _http(method: str, url: str, payload=None, headers=None, timeout: int = 60):
         return exc.code, body
 
 
-def _github_token() -> str:
+def _get_github_token() -> str:
+    # NOTE: this getter must NOT be named `_github_token` — that name belongs
+    # to the module-level cache variable below, and a same-named def would
+    # clobber it: the `is None` lazy-init would then always see the function
+    # itself and the Authorization header would send the function object
+    # (GitHub: 401 Bad credentials, every time, for any PAT).
     global _github_token
     if _github_token is None:
         secret = _secrets_client.get_secret_value(SecretId=GITHUB_TOKEN_SECRET_ID)
@@ -181,7 +186,7 @@ def _gh(method: str, path: str, payload=None, params: dict | None = None):
         url,
         payload,
         {
-            "Authorization": f"Bearer {_github_token()}",
+            "Authorization": f"Bearer {_get_github_token()}",
             "Accept": "application/vnd.github+json",
             "X-GitHub-Api-Version": "2022-11-28",
         },
@@ -200,7 +205,7 @@ def _gh_status(method: str, path: str, payload=None):
         url,
         payload,
         {
-            "Authorization": f"Bearer {_github_token()}",
+            "Authorization": f"Bearer {_get_github_token()}",
             "Accept": "application/vnd.github+json",
             "X-GitHub-Api-Version": "2022-11-28",
         },

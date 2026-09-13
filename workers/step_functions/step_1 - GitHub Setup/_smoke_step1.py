@@ -283,6 +283,74 @@ check(
     == set(),
 )
 
+# 12. Regression: the PAT getter must return the secret's token STRING — this
+#     smoke used to pass while production 401'd, because it never exercised the
+#     auth plumbing (the skip-path tests stub the control plane and return
+#     before any GitHub call). The getter was once named `_github_token`, the
+#     same name as the module-level cache variable, which clobbered it: the
+#     lazy `is None` check always saw the function object itself, Secrets
+#     Manager was never read, and every GitHub call sent
+#     `Bearer <function object>` -> 401 Bad credentials. These checks fail for
+#     both that state (function returned / AttributeError) and a None cache.
+_fake_secret_calls = []
+
+
+def _fake_get_secret_value(SecretId):
+    _fake_secret_calls.append(SecretId)
+    # Padded on purpose: the getter must strip the value (copy/paste PATs often
+    # carry trailing whitespace, and GitHub rejects it).
+    return {"SecretString": "  test-token-123  "}
+
+
+_saved_secrets_client = m._secrets_client
+_saved_github_token = m._github_token
+_saved_http = m._http
+try:
+    m._secrets_client = type(
+        "FakeSecretsClient", (), {"get_secret_value": staticmethod(_fake_get_secret_value)}
+    )()
+    m._github_token = None  # cold cache — force the lazy secret read
+
+    token = m._get_github_token()
+    check(
+        "PAT getter returns the token string, not a function object/None",
+        isinstance(token, str) and token == "test-token-123",
+        repr(token),
+    )
+    check(
+        "PAT getter strips the secret value",
+        token == "test-token-123",
+        repr(token),
+    )
+    check(
+        "PAT getter reads the configured secret id",
+        _fake_secret_calls == [m.GITHUB_TOKEN_SECRET_ID],
+        str(_fake_secret_calls),
+    )
+    m._get_github_token()
+    check(
+        "PAT is cached within the execution (one secret read)",
+        len(_fake_secret_calls) == 1,
+        str(_fake_secret_calls),
+    )
+
+    # The failure mode was only visible in the Authorization header — verify it
+    # end-to-end through _gh_status with a recording _http stub.
+    seen_headers = {}
+    m._http = lambda method, url, payload=None, headers=None, timeout=60: (
+        seen_headers.update(headers or {}) or (200, {})
+    )
+    m._gh_status("GET", "/rate_limit")
+    check(
+        "Authorization header carries the token string",
+        seen_headers.get("Authorization") == "Bearer test-token-123",
+        repr(seen_headers.get("Authorization")),
+    )
+finally:
+    m._secrets_client = _saved_secrets_client
+    m._github_token = _saved_github_token
+    m._http = _saved_http
+
 print()
 if fails:
     sys.exit("FAILED: " + ", ".join(fails))
