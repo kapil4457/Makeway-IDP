@@ -338,6 +338,33 @@ class InternalApiService:
         services = self.serviceRepository.get_by_app(app.appId, cluster_id=cluster.clusterId)
         return {"env": env, "svcIds": [svc.svcId for svc in services]}
 
+    def list_clusters(self) -> dict:
+        """All registered clusters with their kube access, for the health reporter.
+
+        The ArgoCD deploy reporter sweeps **every** cluster Makeway manages
+        (one per environment), so it needs each cluster's endpoint plus the
+        credentials to call its kube-apiserver. Unlike ``get_cluster_details``
+        (redacted, bootstrap verification), this returns the raw token/CA —
+        served under the same worker-only API key as ``get_request_details``,
+        which already emits them per capability. None token/CA means the
+        reporter falls back to its Lambda env ``KUBE_TOKEN``/``KUBE_CA_CERT``,
+        mirroring Step-2's per-claim fallback.
+        """
+        clusters = self.clusterRepository.list_all()
+        return {
+            "clusters": [
+                {
+                    "clusterId": cluster.clusterId,
+                    "clusterName": cluster.clusterName,
+                    "environment": cluster.environment,
+                    "kubeApiEndpoint": cluster.kubeApiEndpoint,
+                    "kubeToken": cluster.kubeToken,
+                    "kubeCaCert": cluster.kubeCaCert,
+                }
+                for cluster in clusters
+            ]
+        }
+
     def get_cluster_details(self, cluster_name: str) -> dict:
         """Redacted cluster info for bootstrap/verification.
 

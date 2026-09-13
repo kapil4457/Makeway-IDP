@@ -94,7 +94,7 @@ needs into its Lambda environment:
 
 | Variable | Meaning |
 |---|---|
-| `kube_api_endpoint` / `kube_ca_cert` / `kube_token` | How the Lambda reaches the (pinggy-tunneled) local cluster's kube-apiserver; `kube_ca_cert` stays empty for the raw-TCP pinggy tunnel |
+| `kube_api_endpoint` / `kube_ca_cert` / `kube_token` | Fallback kube route when a claim/cluster has no registry creds (e.g. the pinggy-tunneled local cluster); per-capability creds otherwise come from the control-plane Cluster registry. `kube_ca_cert` stays empty for the raw-TCP pinggy tunnel |
 | `secrets_prefix` | Secrets Manager prefix (`makeway`) — secrets are named `{prefix}/{app}/{env}/{slug}` |
 | `rds_publicly_accessible` / `rds_ingress_cidr` | The local-cluster seam (pods run off-VPC); flip off / to VPC CIDR on managed EKS |
 | `step2_wait_seconds` / `step2_max_attempts` | Wait/Check loop budget for claim readiness |

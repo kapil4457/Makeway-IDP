@@ -31,7 +31,7 @@ variable "internal_api_key" {
 }
 
 variable "kube_api_endpoint" {
-  description = "Base URL of the (exposed) cluster kube-apiserver the reporter reaches, e.g. https://k8s.makeway.dev."
+  description = "Fallback kube-apiserver base URL the reporter sweeps when the control-plane Cluster registry has no rows, e.g. https://k8s.makeway.dev."
   type        = string
 }
 

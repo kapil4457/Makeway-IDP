@@ -63,7 +63,9 @@ resource "aws_lambda_function" "health_reporter" {
   timeout     = var.timeout_seconds
   memory_size = var.memory_mb
 
-  # In-VPC: private control plane + NAT egress to the kube endpoint.
+  # In-VPC: private control plane + NAT egress to the kube endpoints. The
+  # KUBE_* env vars are the fallback route; per-cluster creds come from the
+  # control-plane Cluster registry (GET /internal/clusters) at sweep time.
   vpc_config {
     subnet_ids         = var.subnet_ids
     security_group_ids = var.security_group_ids

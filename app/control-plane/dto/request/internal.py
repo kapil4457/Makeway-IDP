@@ -160,6 +160,59 @@ class InternalDeploymentSetupReport(BaseModel):
     )
 
 
+class InternalClusterInfo(BaseModel):
+    """One registered cluster with its kube access, for the health reporter.
+
+    Unlike the redacted ``GET /internal/clusters/{name}`` verification shape,
+    this carries the raw endpoint/token/CA so the reporter can reach each
+    environment's own kube-apiserver. ``kubeToken``/``kubeCaCert`` are None
+    when the cluster row has none — the reporter then falls back to its
+    Lambda env ``KUBE_TOKEN``/``KUBE_CA_CERT`` (same semantics Step-2 uses
+    per capability).
+    """
+
+    clusterId: int = Field(
+        ...,
+        description="Primary key of the cluster row.",
+        examples=[1],
+    )
+    clusterName: str = Field(
+        ...,
+        description="Unique cluster name.",
+        examples=["qa-cluster"],
+    )
+    environment: str = Field(
+        ...,
+        description="Environment this cluster serves (qa/uat/prod).",
+        examples=["qa"],
+    )
+    kubeApiEndpoint: str = Field(
+        ...,
+        description="Exposed kube-apiserver URL of the cluster.",
+        examples=["https://k8s.qa"],
+    )
+    kubeToken: str | None = Field(
+        default=None,
+        description="Cluster-scoped worker bearer token; None falls back to "
+        "the worker's Lambda env ``KUBE_TOKEN``.",
+    )
+    kubeCaCert: str | None = Field(
+        default=None,
+        description="Base64 apiserver CA bundle; None/empty disables TLS "
+        "verification (tunnel setups) and falls back to the worker's "
+        "Lambda env ``KUBE_CA_CERT``.",
+    )
+
+
+class InternalClusterListResponse(BaseModel):
+    """All registered clusters, most recently modified first."""
+
+    clusters: list[InternalClusterInfo] = Field(
+        ...,
+        description="Every registered cluster with its kube access.",
+    )
+
+
 class InternalDeploymentGroupResponse(BaseModel):
     """The deployment group behind one ``(app, env)`` ArgoCD Application.
 

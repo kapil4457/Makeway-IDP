@@ -2,8 +2,9 @@
 
 Covers the Application -> deployment-setup report mapping end to end:
 status/health/sync/operationState translation, per-service batch expansion,
-error carrying + clearing, label parsing, and the 'skip unlabeled' branch in
-the sweep loop.
+error carrying + clearing, label parsing, sweep-target resolution (registry
+rows vs the Lambda-env fallback), and the 'skip unlabeled' branch in the
+sweep loop.
 
 Run:  python _smoke_health_reporter.py
 """
@@ -125,20 +126,160 @@ check(
     m._app_labels(app("x", labels={"managed-by": "makeway"})),
 )
 
+# --- Sweep targets ---------------------------------------------------------------
+
+# Empty registry -> single fallback target riding the Lambda env KUBE_*.
+fallback = m._sweep_targets([])
+check("empty registry -> fallback", len(fallback) == 1, fallback)
+check("fallback rides env vars", fallback[0] == {
+    "clusterName": "fallback", "environment": None,
+    "endpoint": None, "token": None, "caCert": None,
+}, fallback)
+
+# Registry rows become per-cluster targets; None creds pass through as None
+# (the reporter falls back to its Lambda env per field).
+targets = m._sweep_targets(
+    [
+        {
+            "clusterId": 1,
+            "clusterName": "qa-cluster",
+            "environment": "qa",
+            "kubeApiEndpoint": "https://k8s.qa",
+            "kubeToken": "qa-token",
+            "kubeCaCert": "qa-ca",
+        },
+        {
+            "clusterId": 2,
+            "clusterName": "uat-cluster",
+            "environment": "uat",
+            "kubeApiEndpoint": "https://k8s.uat",
+            "kubeToken": None,
+            "kubeCaCert": None,
+        },
+    ]
+)
+check("registry -> 2 targets", len(targets) == 2, targets)
+check(
+    "qa target carries creds",
+    (targets[0]["endpoint"], targets[0]["token"], targets[0]["caCert"])
+    == ("https://k8s.qa", "qa-token", "qa-ca"),
+    targets[0],
+)
+check(
+    "tokenless cluster -> None creds",
+    (targets[1]["endpoint"], targets[1]["token"], targets[1]["caCert"])
+    == ("https://k8s.uat", None, None),
+    targets[1],
+)
+
 
 def _fake_control_plane(method, path, payload=None):
     raise AssertionError(f"unexpected control-plane call {method} {path}")
 
 
 # Unlabeled App in the sweep is skipped without calling the control plane.
+# Empty registry -> fallback cluster (fetch stubbed to []).
 apps = [
     app("stale", labels={"managed-by": "makeway"}),
 ]
-m._list_managed_applications = lambda: apps
+m._fetch_clusters = lambda: []
+m._list_managed_applications = lambda **_: apps
 m._control_plane = _fake_control_plane
 res = m.handler({}, None)
 check("unlabeled skipped", res["skipped"] == 1, res)
 check("unlabeled not reported", res["reported"] == 0, res)
+check("fallback sweep counted 1 cluster", res["clusters"] == 1, res)
+
+# --- Multi-cluster sweep -----------------------------------------------------------
+
+# Two registry clusters; only the qa one answers the list call. The labeled
+# app reports through the deployment group; the token-less uat row exercises
+# the per-field Lambda-env fallback (list succeeds, no Applications).
+CLUSTERS = [
+    {
+        "clusterId": 1,
+        "clusterName": "qa-cluster",
+        "environment": "qa",
+        "kubeApiEndpoint": "https://k8s.qa",
+        "kubeToken": "qa-token",
+        "kubeCaCert": None,
+    },
+    {
+        "clusterId": 2,
+        "clusterName": "uat-cluster",
+        "environment": "uat",
+        "kubeApiEndpoint": "https://k8s.uat",
+        "kubeToken": None,
+        "kubeCaCert": None,
+    },
+]
+seen_endpoints = []
+
+
+def fake_cp_multi(method, path, payload=None):
+    if path == "/internal/clusters":
+        return {"clusters": CLUSTERS}
+    if path == "/internal/deployment-groups/order-service/qa":
+        return {"env": "qa", "svcIds": [11]}
+    if method == "POST" and path == "/internal/deployment-setup":
+        return {"message": "ok"}
+    raise AssertionError(f"unexpected control-plane call {method} {path}")
+
+
+def fake_list_multi(*, endpoint=None, token=None, ca_cert=None):
+    seen_endpoints.append(endpoint)
+    if endpoint == "https://k8s.qa":
+        return [
+            app(
+                "order-service-qa",
+                status={"health": {"status": "Healthy"}, "sync": {"status": "Synced"}},
+            )
+        ]
+    return []
+
+
+posted = []
+
+
+def fake_cp_capture(method, path, payload=None):
+    if path == "/internal/clusters":
+        return {"clusters": CLUSTERS}
+    if path == "/internal/deployment-groups/order-service/qa":
+        return {"env": "qa", "svcIds": [11]}
+    if method == "POST" and path == "/internal/deployment-setup":
+        posted.append(payload)
+        return {"message": "ok"}
+    raise AssertionError(f"unexpected control-plane call {method} {path}")
+
+
+m._fetch_clusters = lambda: CLUSTERS
+m._list_managed_applications = fake_list_multi
+m._control_plane = fake_cp_multi
+res = m.handler({}, None)
+check("multi sweep visits both clusters", sorted(seen_endpoints) == ["https://k8s.qa", "https://k8s.uat"], seen_endpoints)
+check("multi sweep reports 1", res["reported"] == 1, res)
+check("multi sweep applications counted", res["applications"] == 1, res)
+check("multi sweep cluster count", res["clusters"] == 2, res)
+
+# Dead cluster: a failing list call must not block the other clusters.
+def fake_list_broken(*, endpoint=None, token=None, ca_cert=None):
+    if endpoint == "https://k8s.qa":
+        raise RuntimeError("kube list Applications -> HTTP 401")
+    return []
+
+
+m._list_managed_applications = fake_list_broken
+res = m.handler({}, None)
+check("dead cluster counted failed", res["failed"] == 1, res)
+check("healthy cluster still swept", res["applications"] == 0 and res["reported"] == 0, res)
+
+# End-to-end reporting through the multi-cluster loop (capture POST bodies).
+posted.clear()
+m._list_managed_applications = fake_list_multi
+m._control_plane = fake_cp_capture
+res = m.handler({}, None)
+check("e2e reported 1 svc", res["reported"] == 1 and len(posted) == 1, res)
+check("e2e payload shape", posted[0]["svcId"] == 11 and posted[0]["status"] == "success", posted)
 
 if fails:
     print(f"\n{len(fails)} smoke failure(s): {fails}")

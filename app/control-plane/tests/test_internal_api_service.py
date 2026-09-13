@@ -415,6 +415,32 @@ def test_negative_paths() -> None:
             assert exc.error_code == "CAPABILITY_NOT_IN_APP"
 
 
+def test_list_clusters_for_reporter() -> None:
+    """The health reporter's sweep source: every cluster row with its kube
+    access (qa carries token/CA; uat's None creds fall back to the Lambda env
+    on the worker side)."""
+    _seed()
+
+    with Session(db_engine.engine) as session:
+        api = _build_service(session)
+        clusters = api.list_clusters()["clusters"]
+
+        by_name = {c["clusterName"]: c for c in clusters}
+        assert set(by_name) == {"qa-cluster", "uat-cluster"}
+
+        qa = by_name["qa-cluster"]
+        assert qa["environment"] == "qa"
+        assert qa["kubeApiEndpoint"] == "https://k8s.qa"
+        assert qa["kubeToken"] == "qa-token"
+        assert qa["kubeCaCert"] == "qa-ca"
+
+        uat = by_name["uat-cluster"]
+        assert uat["environment"] == "uat"
+        assert uat["kubeApiEndpoint"] == "https://k8s.uat"
+        assert uat["kubeToken"] is None
+        assert uat["kubeCaCert"] is None
+
+
 def _reset_db() -> None:
     """Drop and recreate every table so each test starts from a clean DB.
 
@@ -442,5 +468,9 @@ if __name__ == "__main__":
     _reset_db()
     test_negative_paths()
     print("test_negative_paths .... OK")
+
+    _reset_db()
+    test_list_clusters_for_reporter()
+    print("test_list_clusters_for_reporter .... OK")
 
     print("All InternalApiService tests passed.")

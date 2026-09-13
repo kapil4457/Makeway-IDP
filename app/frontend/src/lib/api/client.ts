@@ -67,10 +67,27 @@ function buildHeaders(options: RequestOptions): Headers {
   }
 
   if (options.idempotencyKey) {
-    headers.set('Idempotency-Key', crypto.randomUUID())
+    headers.set('Idempotency-Key', uuid())
   }
 
   return headers
+}
+
+/**
+ * Random v4 UUID. `crypto.randomUUID` only exists in secure contexts
+ * (HTTPS / localhost) — on the plain-HTTP ALB deployment it is undefined and
+ * calling it would throw, so fall back to `getRandomValues` (available
+ * everywhere). The backend treats the Idempotency-Key as an opaque string.
+ */
+function uuid(): string {
+  if (typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID()
+  }
+  const bytes = crypto.getRandomValues(new Uint8Array(16))
+  bytes[6] = (bytes[6] & 0x0f) | 0x40 // version 4
+  bytes[8] = (bytes[8] & 0x3f) | 0x80 // variant 10
+  const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, '0'))
+  return `${hex.slice(0, 4).join('')}-${hex.slice(4, 6).join('')}-${hex.slice(6, 8).join('')}-${hex.slice(8, 10).join('')}-${hex.slice(10, 16).join('')}`
 }
 
 /** A 401 outside the login flow means the session is dead — act on it. */
@@ -84,12 +101,18 @@ function handleUnauthorized() {
 export async function apiFetch<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const { method = 'GET', handleAuth = true } = options
 
+  // Build headers outside the network try/catch: a bug here must surface as
+  // itself, not masquerade as "backend unreachable" (that masking is exactly
+  // how the crypto.randomUUID secure-context bug hid for a whole deploy).
+  const headers = buildHeaders(options)
+  const body = options.body !== undefined ? JSON.stringify(options.body) : undefined
+
   let response: Response
   try {
     response = await fetch(`${API_BASE}${path}`, {
       method,
-      headers: buildHeaders(options),
-      body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
+      headers,
+      body,
       signal: options.signal,
     })
   } catch {

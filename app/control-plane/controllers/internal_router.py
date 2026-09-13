@@ -10,6 +10,10 @@ Lambda worker calls:
   repo URLs / per-service folder paths it produced.
 - ``POST /internal/deployment-setup`` — record a service's ArgoCD rollout
   state (the deploy reporter) so the status endpoint can show real health.
+- ``GET /internal/clusters`` — every registered cluster with its kube access
+  (endpoint + raw token/CA) so the health reporter can sweep each
+  environment's own ArgoCD; per-cluster None creds fall back to the worker's
+  Lambda env.
 - ``GET /internal/clusters/{cluster_name}`` — redacted cluster registration
   info (endpoint + presence flags, never the raw token/CA) for bootstrap
   verification.
@@ -21,6 +25,7 @@ from dependencies.internal import (
     require_internal_api_key,
 )
 from dto.request.internal import (
+    InternalClusterListResponse,
     InternalDeploymentGroupResponse,
     InternalDeploymentSetupReport,
     InternalStatusUpdateRequest,
@@ -100,6 +105,24 @@ def record_deployment_setup(
     service: InternalApiService = Depends(get_internal_api_service),
 ) -> dict:
     return service.record_deployment_setup(payload)
+
+
+@router.get(
+    "/clusters",
+    summary="List registered clusters with kube access",
+    description=(
+        "Called by the ArgoCD deploy reporter to sweep every environment's "
+        "cluster: one entry per registered cluster with its exposed "
+        "kube-apiserver endpoint and worker token/CA (None falls back to the "
+        "reporter's Lambda env). Credential-bearing — guarded by the "
+        "internal API key like every route here."
+    ),
+    response_model=InternalClusterListResponse,
+)
+def list_clusters(
+    service: InternalApiService = Depends(get_internal_api_service),
+) -> dict:
+    return service.list_clusters()
 
 
 @router.get(
