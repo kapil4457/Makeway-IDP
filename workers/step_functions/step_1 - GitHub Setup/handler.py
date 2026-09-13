@@ -64,6 +64,14 @@ REGION = os.environ.get("AWS_REGION", "ap-south-1")
 MAKEWAY_PLATFORM_REPO = os.environ.get("MAKEWAY_PLATFORM_REPO", "Makeway-IDP")
 PLATFORM_REPO = f"{GITHUB_OWNER}/{MAKEWAY_PLATFORM_REPO}"
 
+# Secrets Manager secret holding the CI credentials injected into each app
+# repo's GitHub Actions config (JSON: {"dockerhub_image", "dockerhub_username",
+# "dockerhub_token"}). Terraform creates the container and points the Lambda
+# at it; the value is seeded once out-of-band (see the secret resource in the
+# module's main.tf). Empty = injection disabled (repos still get created, their
+# CI just stays unconfigured).
+APP_REPO_CI_SECRET_ID = os.environ.get("APP_REPO_CI_SECRET_ID", "")
+
 STEP = "create_project"
 
 TEMPLATES_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "templates")
@@ -268,6 +276,81 @@ def _collect_template_files(template_dir: str) -> dict[str, str]:
             with open(full_path, "r", encoding="utf-8") as handle:
                 files[rel_path] = handle.read()
     return files
+
+
+def _encrypt_secret(public_key_b64: str, value: str) -> str:
+    """libsodium sealed box (PyNaCl — vendored into the Lambda package).
+
+    The scheme GitHub's "Update a repository secret" API expects: the repo's
+    Actions public key seals the value anonymously, and only GitHub's private
+    counterpart can open it.
+    https://docs.github.com/actions/security-guides/encrypted-secrets
+    """
+    from nacl import encoding, public  # vendored at package build time (deploy-infra)
+
+    recipient = public.PublicKey(
+        public_key_b64.encode("utf-8"), encoding.Base64Encoder()
+    )
+    sealed = public.SealedBox(recipient).encrypt(value.encode("utf-8"))
+    return base64.b64encode(sealed).decode("utf-8")
+
+
+def _inject_repo_ci_config(repo: str) -> None:
+    """Push CI credentials into an app repo's GitHub Actions config.
+
+    Reads {dockerhub_image, dockerhub_username, dockerhub_token} from the
+    Secrets Manager secret (``APP_REPO_CI_SECRET_ID``), writes
+    DOCKERHUB_USERNAME / DOCKERHUB_TOKEN / GITOPS_PAT as encrypted repo
+    secrets (GITOPS_PAT reuses the platform PAT Step-1 already holds) and
+    DOCKERHUB_IMAGE as a plaintext repo variable. Runs BEFORE the first push
+    so the scaffolded workflows can build and push images on it. PUT is
+    create-or-update, so update-request re-runs self-heal an existing repo.
+
+    Best-effort by design: an unset/missing secret, a missing key, or a GitHub
+    failure is logged and skipped — repo creation never blocks on optional CI
+    credentials. Logs carry names and statuses, never credential values.
+    """
+    if not APP_REPO_CI_SECRET_ID:
+        logger.warning("APP_REPO_CI_SECRET_ID is unset; skipping Actions config for %s", repo)
+        return
+    try:
+        creds = json.loads(
+            _secrets_client.get_secret_value(SecretId=APP_REPO_CI_SECRET_ID)["SecretString"]
+        )
+        missing = [
+            key for key in ("dockerhub_image", "dockerhub_username", "dockerhub_token")
+            if not creds.get(key)
+        ]
+        if missing:
+            logger.warning(
+                "secret %s is missing %s; skipping Actions config for %s",
+                APP_REPO_CI_SECRET_ID, ", ".join(missing), repo,
+            )
+            return
+
+        # The repo public key encrypts everything; GITOPS_PAT is the same PAT
+        # the worker already holds, so no new credential is created for it.
+        pk = _gh("GET", f"/repos/{GITHUB_OWNER}/{repo}/actions/secrets/public-key")
+        key_id = pk["key_id"]
+        gitops_pat = _get_github_token()
+        for name, value in (
+            ("DOCKERHUB_USERNAME", creds["dockerhub_username"]),
+            ("DOCKERHUB_TOKEN", creds["dockerhub_token"]),
+            ("GITOPS_PAT", gitops_pat),
+        ):
+            _gh(
+                "PUT",
+                f"/repos/{GITHUB_OWNER}/{repo}/actions/secrets/{name}",
+                {"encrypted_value": _encrypt_secret(pk["key"], value), "key_id": key_id},
+            )
+        _gh(
+            "PUT",
+            f"/repos/{GITHUB_OWNER}/{repo}/actions/variables/DOCKERHUB_IMAGE",
+            {"value": creds["dockerhub_image"]},
+        )
+        logger.info("Actions config set on %s (3 secrets, 1 variable)", repo)
+    except Exception as exc:  # noqa: BLE001 — credentials are optional; never block the repo
+        logger.warning("skipping Actions config injection for %s: %s", repo, exc)
 
 
 def _ensure_repo(repo: str):
@@ -1109,6 +1192,9 @@ def handler(event, context):
         #    monorepo folders of fully-removed services are user code — left
         #    in place; their CI workflows lose their gitops target and go.
         _ensure_repo(services_repo)
+        # CI credentials must exist before the first push: the scaffolded
+        # workflows fire on push and need DOCKERHUB_*/GITOPS_PAT to run.
+        _inject_repo_ci_config(services_repo)
         _push_services_repo(
             services_repo,
             app_name,

@@ -19,6 +19,14 @@ jobs:
         with:
           ref: main
 
+      # Step-1 encrypts GitHub repo secrets with libsodium sealed box, so the
+      # PyNaCl package must ship inside the Lambda zip. The wheel is
+      # self-contained (bundled libsodium) — no Lambda layer needed.
+      - name: Vendor PyNaCl into the Step-1 package
+        run: |
+          python3 -m pip install --no-compile --disable-pip-version-check \
+            --target "workers/step_functions/step_1 - GitHub Setup" pynacl
+
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:

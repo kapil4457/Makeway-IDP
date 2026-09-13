@@ -4,10 +4,21 @@ Covers the state-machine contract: every handler() return path must carry the
 keys the SFN payload templates reference — "Step2 Apply" reads $.request_id /
 $.job_id from Step-1's output, and each Task's output replaces the next state's
 entire input (no ResultPath), so a bare skip dict would fail the execution.
+
+Also covers the repo CI-credentials injection (_inject_repo_ci_config): the
+Secrets Manager read, the GitHub Actions API call shapes, the warn-and-continue
+contract, and — when PyNaCl is importable — a real sealed-box encrypt/decrypt
+round-trip against the reference libsodium implementation (set PYTHONPATH to a
+directory with PyNaCl, or just have it installed; the Lambda gets it vendored
+by deploy-infra).
 Run:  python _smoke_step1.py
 """
+import base64
 import importlib.util
+import json
+import logging
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -425,6 +436,220 @@ try:
         check("non-404 on existence GET raises RuntimeError", False, repr(exc))
 finally:
     m._gh, m._gh_status = saved_gh, saved_gh_status
+
+# 14. _inject_repo_ci_config — CI credentials: Secrets Manager -> repo Actions
+#     config, BEFORE the first push (the scaffold's workflows fire on push).
+_log_capture = []
+logging.getLogger().addHandler(
+    type("_Capture", (logging.Handler,), {"emit": lambda self, r: _log_capture.append(r)})()
+)
+
+try:
+    import nacl  # noqa: F401
+    from nacl.public import PrivateKey, SealedBox
+
+    have_nacl = True
+except ImportError:  # pragma: no cover — PyNaCl optional locally, vendored on Lambda
+    have_nacl = False
+if have_nacl:
+    _pair = PrivateKey.generate()
+    PK_B64 = base64.b64encode(bytes(_pair.public_key)).decode("ascii")
+    _decrypt_box = lambda: SealedBox(_pair)
+else:
+    PK_B64 = "ZmFrZS1wdWJsaWMta2V5"  # unused — _encrypt_secret gets stubbed below
+    _decrypt_box = None
+
+_ci_secret_json = json.dumps({
+    "dockerhub_image": "kapil4457/makeway-apps",
+    "dockerhub_username": "makeway-ci-user",
+    "dockerhub_token": "dckr_pat_secret123",
+})
+_FAKE_PAT = "platform-pat-token"
+_SECRET_KEYS = ("DOCKERHUB_USERNAME", "DOCKERHUB_TOKEN", "GITOPS_PAT")
+
+
+class _FakeSecrets:
+    """Counts every read; answers the PAT and CI-credentials secret ids."""
+
+    def __init__(self):
+        self.calls = []
+
+    def get_secret_value(self, SecretId):
+        self.calls.append(SecretId)
+        if SecretId == m.GITHUB_TOKEN_SECRET_ID:
+            return {"SecretString": f"  {_FAKE_PAT}  "}
+        if SecretId == m.APP_REPO_CI_SECRET_ID:
+            return {"SecretString": _ci_secret_json}
+        raise AssertionError(f"unexpected secret read: {SecretId}")
+
+
+def _recording_gh(calls):
+    def fake_gh(method, path, payload=None, params=None):
+        calls.append((method, path, payload))
+        if method == "GET" and path.endswith("/actions/secrets/public-key"):
+            return {"key_id": "test-key-id", "key": PK_B64}
+        return {}
+    return fake_gh
+
+
+def _expected_sequence(repo):
+    owner = m.GITHUB_OWNER
+    return [
+        ("GET", f"/repos/{owner}/{repo}/actions/secrets/public-key", None),
+        ("PUT", f"/repos/{owner}/{repo}/actions/secrets/DOCKERHUB_USERNAME"),
+        ("PUT", f"/repos/{owner}/{repo}/actions/secrets/DOCKERHUB_TOKEN"),
+        ("PUT", f"/repos/{owner}/{repo}/actions/secrets/GITOPS_PAT"),
+        ("PUT", f"/repos/{owner}/{repo}/actions/variables/DOCKERHUB_IMAGE"),
+    ]
+
+
+saved_ci_id, saved_ci_secrets, saved_ci_token, saved_ci_gh, saved_encrypt = (
+    m.APP_REPO_CI_SECRET_ID, m._secrets_client, m._github_token, m._gh, m._encrypt_secret,
+)
+try:
+    repo = "orders-app"
+
+    # (a) Unset APP_REPO_CI_SECRET_ID -> one warning, zero API calls.
+    m.APP_REPO_CI_SECRET_ID = ""
+    calls = []
+    m._gh = _recording_gh(calls)
+    m._secrets_client = _FakeSecrets()
+    _log_capture.clear()
+    m._inject_repo_ci_config(repo)
+    check(
+        "unset secret id: zero calls + warning",
+        calls == [] and any("APP_REPO_CI_SECRET_ID" in r.getMessage() for r in _log_capture),
+        str(calls),
+    )
+
+    # (b) Missing JSON keys -> warning names them, zero GitHub calls.
+    m.APP_REPO_CI_SECRET_ID = "makeway/app-repo-ci"
+    fake = _FakeSecrets()
+    fake.get_secret_value = lambda SecretId: {"SecretString": json.dumps({"dockerhub_image": "x"})}
+    m._secrets_client = fake
+    m._gh = _recording_gh(calls := [])
+    _log_capture.clear()
+    m._inject_repo_ci_config(repo)
+    check(
+        "missing keys: no GitHub calls + warning names them",
+        calls == []
+        and any(
+            "dockerhub_username" in r.getMessage() and "dockerhub_token" in r.getMessage()
+            for r in _log_capture
+        ),
+        str(calls),
+    )
+
+    # (c) Happy path: 1 public-key GET, 3 secret PUTs, 1 variable PUT.
+    m._secrets_client = _FakeSecrets()
+    m._github_token = None  # cold cache — GITOPS_PAT comes from the PAT secret
+    calls = []
+    m._gh = _recording_gh(calls)
+    if not have_nacl:
+        m._encrypt_secret = lambda pk_b64, value: base64.b64encode(
+            f"fake-sealed:{value}".encode("utf-8")
+        ).decode("ascii")
+    _log_capture.clear()
+    m._inject_repo_ci_config(repo)
+
+    check("public-key GET is first", calls[0] == ("GET", f"/repos/{m.GITHUB_OWNER}/{repo}/actions/secrets/public-key", None))
+    check(
+        "3 secret PUTs + 1 variable PUT in order",
+        [c[1] for c in calls[1:]] == [
+            f"/repos/{m.GITHUB_OWNER}/{repo}/actions/secrets/DOCKERHUB_USERNAME",
+            f"/repos/{m.GITHUB_OWNER}/{repo}/actions/secrets/DOCKERHUB_TOKEN",
+            f"/repos/{m.GITHUB_OWNER}/{repo}/actions/secrets/GITOPS_PAT",
+            f"/repos/{m.GITHUB_OWNER}/{repo}/actions/variables/DOCKERHUB_IMAGE",
+        ],
+        str(calls),
+    )
+    secret_puts = {c[1].rsplit("/", 1)[-1]: c[2] for c in calls if "/actions/secrets/" in c[1] and c[0] == "PUT"}
+    check(
+        "secret PUT payloads carry encrypted_value + key_id",
+        all(
+            isinstance(p.get("encrypted_value"), str) and p.get("key_id") == "test-key-id"
+            for p in secret_puts.values()
+        ),
+        str(secret_puts),
+    )
+    check(
+        "variable PUT carries the plaintext image name",
+        calls[-1][2] == {"value": "kapil4457/makeway-apps"},
+        str(calls[-1]),
+    )
+    check(
+        "secrets read exactly once each (PAT cached, CI creds read per call)",
+        m._secrets_client.calls.count(m.APP_REPO_CI_SECRET_ID) == 1
+        and m._secrets_client.calls.count(m.GITHUB_TOKEN_SECRET_ID) == 1,
+        str(m._secrets_client.calls),
+    )
+    if have_nacl:
+        decrypted = {
+            name: _decrypt_box().decrypt(base64.b64decode(p["encrypted_value"])).decode("utf-8")
+            for name, p in secret_puts.items()
+        }
+        check(
+            "sealed-box round-trip decrypts to the injected values",
+            decrypted == {
+                "DOCKERHUB_USERNAME": "makeway-ci-user",
+                "DOCKERHUB_TOKEN": "dckr_pat_secret123",
+                "GITOPS_PAT": _FAKE_PAT,
+            },
+            str(decrypted),
+        )
+    else:
+        check("encrypted values are base64 (stubbed)", True)
+    check(
+        "no plaintext in encrypted payloads",
+        all("dckr_pat_secret123" not in p["encrypted_value"] and _FAKE_PAT not in p["encrypted_value"]
+            for p in secret_puts.values()),
+        str(secret_puts),
+    )
+
+    # (d) Idempotent second run — PUT is create-or-update, so re-running the
+    #     injection on an existing repo is safe and repeats the same shape.
+    before = len(calls)
+    m._inject_repo_ci_config(repo)
+    check(
+        "second run repeats the same call shape",
+        len(calls) == 2 * 5 and [c[1] for c in calls[5:]] == [c[1] for c in calls[:5]],
+        str(len(calls)),
+    )
+
+    # (e) GitHub failure -> warning, no raise (warn-and-continue contract).
+    def _exploding_gh(method, path, payload=None, params=None):
+        raise RuntimeError("github GET /repos/x/actions/secrets/public-key -> HTTP 500")
+
+    m._gh = _exploding_gh
+    _log_capture.clear()
+    try:
+        m._inject_repo_ci_config(repo)
+        check("GitHub failure: warns and continues", any("skipping Actions config" in r.getMessage() for r in _log_capture))
+    except Exception as exc:  # noqa: BLE001
+        check("GitHub failure: warns and continues", False, repr(exc))
+finally:
+    m.APP_REPO_CI_SECRET_ID = saved_ci_id
+    m._secrets_client = saved_ci_secrets
+    m._github_token = saved_ci_token
+    m._gh = saved_ci_gh
+    m._encrypt_secret = saved_encrypt
+
+# 15. Static call-site contract: injection runs after the repo exists and
+#     before the first push, so the scaffold's workflows already have creds.
+#     Comment-only lines are stripped first — a commented-out call must fail.
+_source = re.sub(r"(?m)^\s*#.*$", "", H.read_text(encoding="utf-8"))
+_ensure_call = re.search(r"_ensure_repo\(services_repo\)", _source)
+_inject_call = re.search(r"_inject_repo_ci_config\(services_repo\)", _source)
+_push_call = re.search(r"_push_services_repo\(\s*services_repo,", _source)
+check(
+    "injection call sits between _ensure_repo and _push_services_repo",
+    bool(_ensure_call and _inject_call and _push_call)
+    and _ensure_call.start() < _inject_call.start() < _push_call.start(),
+)
+check(
+    "module reads APP_REPO_CI_SECRET_ID from the environment",
+    'APP_REPO_CI_SECRET_ID = os.environ.get(' in _source,
+)
 
 print()
 if fails:

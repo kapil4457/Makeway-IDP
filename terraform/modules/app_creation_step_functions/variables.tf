@@ -23,6 +23,17 @@ variable "github_token_secret_name" {
   default     = "makeway/github-pat"
 }
 
+# The app-repo CI credentials (Docker Hub image/username/token) are NOT
+# variables either — same container-not-value pattern as the PAT; the value is
+# seeded out-of-band (see the secret resource in main.tf), so it never passes
+# through tfvars or CI.
+
+variable "app_repo_ci_secret_name" {
+  description = "Name of the Secrets Manager secret holding the CI credentials (Docker Hub image/username/token) Step 1 injects into app repos' GitHub Actions config."
+  type        = string
+  default     = "makeway/app-repo-ci"
+}
+
 variable "control_plane_url" {
   description = "Base URL of the control-plane internal API, reachable from the worker Lambdas. The control plane is fully private, so this is the in-VPC Cloud Map URL (http://control-plane.makeway.internal:8000) — requires the VPC attachment below."
   type        = string

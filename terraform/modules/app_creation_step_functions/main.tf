@@ -53,6 +53,24 @@ resource "aws_secretsmanager_secret" "github_pat" {
   description = "GitHub PAT used by the Makeway Step-1 worker (repo creation + gitops PRs)."
 }
 
+# --- App-repo CI credentials (Secrets Manager) -------------------------------
+# Step-1 pushes these into every generated app repo's GitHub Actions config
+# (DOCKERHUB_IMAGE variable + DOCKERHUB_USERNAME/DOCKERHUB_TOKEN/GITOPS_PAT
+# secrets, sealed-box-encrypted at runtime with PyNaCl vendored into the
+# package by deploy-infra). Same container-not-value pattern as the PAT above
+# — populate the VALUE once, out-of-band:
+#
+#   aws secretsmanager put-secret-value \
+#     --secret-id <var.app_repo_ci_secret_name> \
+#     --secret-string '{"dockerhub_image":"...","dockerhub_username":"...","dockerhub_token":"..."}'
+#
+# While the value is unseeded, Step-1 logs a warning and skips injection —
+# repos are still created, their CI just has no credentials yet.
+resource "aws_secretsmanager_secret" "app_repo_ci" {
+  name        = var.app_repo_ci_secret_name
+  description = "CI credentials (Docker Hub image/username/token) injected into app repos' GitHub Actions config by the Step-1 worker."
+}
+
 # --- IAM — Step-1 Lambda ------------------------------------------------------
 
 data "aws_iam_policy_document" "lambda_assume" {
@@ -68,8 +86,11 @@ data "aws_iam_policy_document" "lambda_assume" {
 
 data "aws_iam_policy_document" "step1_read_secret" {
   statement {
-    actions   = ["secretsmanager:GetSecretValue"]
-    resources = [aws_secretsmanager_secret.github_pat.arn]
+    actions = ["secretsmanager:GetSecretValue"]
+    resources = [
+      aws_secretsmanager_secret.github_pat.arn,
+      aws_secretsmanager_secret.app_repo_ci.arn,
+    ]
   }
 }
 
@@ -123,6 +144,7 @@ resource "aws_lambda_function" "step1" {
     variables = {
       GITHUB_OWNER           = var.github_owner
       GITHUB_TOKEN_SECRET_ID = aws_secretsmanager_secret.github_pat.name
+      APP_REPO_CI_SECRET_ID  = aws_secretsmanager_secret.app_repo_ci.name
       CONTROL_PLANE_URL      = var.control_plane_url
       INTERNAL_API_KEY       = var.internal_api_key
       MAKEWAY_PLATFORM_REPO  = var.makeway_platform_repo
