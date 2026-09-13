@@ -1,0 +1,14 @@
+# Image patch for test-service-6 in the prod environment.
+# The service's CI workflow rewrites the image line below when the branch that
+# promotes prod merges (feature/* -> qa, release/* -> uat, main -> prod);
+# ArgoCD rolls out the change.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: test-service-6
+spec:
+  template:
+    spec:
+      containers:
+        - name: test-service-6
+          image: makeway-placeholder/test-service-6:pending-first-build

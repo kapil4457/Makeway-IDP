@@ -1,0 +1,32 @@
+# Golden-path Deployment for the test-service-6 service.
+# Shared across environments — the envs/<env>/ overrides patch the image tag per
+# environment. Makeway CI rewrites those patches after every build on main.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: test-service-6
+  labels:
+    app: test-service-6
+    managed-by: makeway
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: test-service-6
+  template:
+    metadata:
+      labels:
+        app: test-service-6
+    spec:
+      containers:
+        - name: test-service-6
+          image: makeway-placeholder/test-service-6:pending-first-build
+          ports:
+            - containerPort: 8000
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
