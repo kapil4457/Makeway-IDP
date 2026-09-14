@@ -1,4 +1,4 @@
-# Namespace isolation for the app-5 app — applied by every app-5
+# Namespace isolation for the app-6 app — applied by every app-6
 # env overlay into its own namespace ({app}-{env}), like the Namespaces they
 # live in.
 #

@@ -1,4 +1,4 @@
-# `argocd/apps/app-5` — GitOps configuration
+# `argocd/apps/app-6` — GitOps configuration
 
 Managed by Makeway and stored in the Makeway platform repo itself — there is no
 separate per-app gitops repository. Each environment cluster runs its own
@@ -15,7 +15,7 @@ Layout:
   learns its ClusterIP). **Requires a policy-capable CNI (calico/cilium, not
   the default k3d/kind flannel/kindnet) to be enforced.**
 - **`envs/<env>/namespace.yaml`** — each overlay creates exactly one Kubernetes
-  Namespace, its own `app-5-<env>` (qa → `app-5-qa`). The qa
+  Namespace, its own `app-6-<env>` (qa → `app-6-qa`). The qa
   Application never manages uat/prod, and vice versa.
 - **`apps/<service>/`** — golden-path Deployment + Service (+ kustomization)
   for a service. Services are deduplicated by base name across environments
