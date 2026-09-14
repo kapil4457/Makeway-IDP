@@ -22,6 +22,12 @@
 # --- Lambda packages ----------------------------------------------------------
 # Both handlers resolve templates/ claim_templates/ relative to __file__, so each
 # folder must sit beside the handler at the zip root — hence source_dir.
+#
+# The Step-1 zip MUST carry PyNaCl (handler imports nacl for sealed-box
+# encryption of repo secrets). CI vendors it into the source dir before
+# planning (deploy-infra, both plan and apply jobs). A LOCAL platform apply
+# zips whatever is in the checkout — vendor first or the deployed worker
+# silently skips Actions-config injection ("No module named 'nacl'").
 data "archive_file" "step1" {
   type        = "zip"
   source_dir  = var.handler_source_dir

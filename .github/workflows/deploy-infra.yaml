@@ -116,6 +116,15 @@ jobs:
         with:
           ref: main
 
+      # Same rationale as the plan job's vendor step: the apply job normally
+      # consumes the plan-built zips as artifacts, but if apply is ever run
+      # plan-less (terraform apply without a plan file) archive_file re-zips
+      # THIS checkout — which must then carry PyNaCl too. Idempotent either way.
+      - name: Vendor PyNaCl into the Step-1 package
+        run: |
+          python3 -m pip install --no-compile --disable-pip-version-check \
+            --target "workers/step_functions/step_1 - GitHub Setup" pynacl
+
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
