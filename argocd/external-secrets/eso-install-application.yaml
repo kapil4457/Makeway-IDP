@@ -34,6 +34,11 @@ spec:
       selfHeal: true
     syncOptions:
       - CreateNamespace=true
+      # The ESO 0.19.x CRDs exceed the 256KB etcd annotation limit when applied
+      # client-side (the whole manifest is stored in last-applied-configuration)
+      # — both CRDs are rejected ("metadata.annotations: Too long") and ESO
+      # never installs. Server-side apply bypasses that annotation entirely.
+      - ServerSideApply=true
     retry:
       limit: 5
       backoff:
