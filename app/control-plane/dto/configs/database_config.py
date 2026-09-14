@@ -14,9 +14,16 @@ class DatabaseConfig(pydantic.BaseModel):
     )
     name: str = Field(
         ...,
-        description="Name of the database to provision.",
+        description=(
+            "Name of the database to provision. SQL-safe identifier: lowercase "
+            "letters, digits, underscores — hyphens are invalid unquoted "
+            "database identifiers and AWS RDS rejects them. Mirrors the "
+            "RelationalDatabase XRD's databaseName pattern."
+        ),
         examples=["orders"],
         min_length=1,
+        max_length=63,
+        pattern=r"^[a-z0-9_]+$",
     )
     username: Optional[str] = Field(
         default=None,
