@@ -22,10 +22,20 @@ jobs:
       # Step-1 encrypts GitHub repo secrets with libsodium sealed box, so the
       # PyNaCl package must ship inside the Lambda zip. The wheel is
       # self-contained (bundled libsodium) — no Lambda layer needed.
+      # The --target MUST be absolute: this job's run steps default to
+      # working-directory terraform/, so a relative target makes pip CREATE
+      # terraform/workers/... while archive_file zips <workspace>/workers/...
+      # — the zip silently ships without PyNaCl. The asserts below turn that
+      # trap into a hard failure.
       - name: Vendor PyNaCl into the Step-1 package
         run: |
           python3 -m pip install --no-compile --disable-pip-version-check \
-            --target "workers/step_functions/step_1 - GitHub Setup" pynacl
+            --target "${{ github.workspace }}/workers/step_functions/step_1 - GitHub Setup" pynacl
+
+      - name: Assert PyNaCl is vendored into the Step-1 source dir
+        run: |
+          test -f "${{ github.workspace }}/workers/step_functions/step_1 - GitHub Setup/nacl/__init__.py" \
+            || { echo "::error::PyNaCl missing from the Step-1 source dir — vendor step targeted the wrong path"; exit 1; }
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -62,6 +72,20 @@ jobs:
           # Optional — empty disables TLS verification against the exposed cluster.
           TF_VAR_kube_ca_cert: ${{ vars.MAKEWAY_KUBE_CA_CERT || '' }}
         run: terraform plan -input=false -out=tfplan -no-color
+
+      # Ground truth: the zip archive_file just rebuilt must actually contain
+      # PyNaCl, or the deployed worker silently skips Actions-config injection.
+      - name: Assert the Step-1 zip carries PyNaCl
+        run: |
+          python3 - <<'EOF'
+          import os, zipfile
+          zpath = os.path.join(os.environ["GITHUB_WORKSPACE"],
+                               "terraform/modules/app_creation_step_functions/dist/makeway-app-creation-step1.zip")
+          names = zipfile.ZipFile(zpath).namelist()
+          nacl = [n for n in names if n.startswith("nacl/")]
+          assert nacl, "Step-1 zip lacks PyNaCl — Actions-config injection would skip with 'No module named nacl'"
+          print("Step-1 zip OK: %d nacl entries" % len(nacl))
+          EOF
 
       - name: Show Plan
         run: terraform show -no-color tfplan
@@ -119,11 +143,12 @@ jobs:
       # Same rationale as the plan job's vendor step: the apply job normally
       # consumes the plan-built zips as artifacts, but if apply is ever run
       # plan-less (terraform apply without a plan file) archive_file re-zips
-      # THIS checkout — which must then carry PyNaCl too. Idempotent either way.
+      # THIS checkout — which must then carry PyNaCl too. Idempotent either
+      # way. Absolute --target so the path never depends on the step's cwd.
       - name: Vendor PyNaCl into the Step-1 package
         run: |
           python3 -m pip install --no-compile --disable-pip-version-check \
-            --target "workers/step_functions/step_1 - GitHub Setup" pynacl
+            --target "${{ github.workspace }}/workers/step_functions/step_1 - GitHub Setup" pynacl
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
