@@ -2,6 +2,23 @@ name: deploy-infra
 
 on:
   workflow_dispatch:
+    inputs:
+      control_plane_tag:
+        description: >-
+          Docker Hub tag of the control-plane image to deploy — the build
+          workflow tags each main commit with its sha. Leave empty to keep
+          the currently deployed image untouched; a first-ever deploy falls
+          back to ":latest".
+        required: false
+        default: ""
+      frontend_tag:
+        description: >-
+          Docker Hub tag of the platform-UI image to deploy — the build
+          workflow tags each main commit with its sha. Leave empty to keep
+          the currently deployed image untouched; a first-ever deploy falls
+          back to ":latest".
+        required: false
+        default: ""
 
 permissions:
   id-token: write
@@ -55,6 +72,50 @@ jobs:
       - name: Terraform Validate
         run: terraform validate -no-color
 
+      # Image resolution for the whole platform, in one workflow: an explicit
+      # tag input deploys that image; an empty input pins the live task-def
+      # image so the plan rolls nothing the run doesn't ship (the terraform
+      # config otherwise defaults ecs_image / frontend_image to floating
+      # ":latest" tags). A family absent (first-ever deploy) falls back to
+      # ":latest" — the tag the build workflows push on every main commit.
+      - name: Resolve the control-plane image
+        id: pin_cp
+        env:
+          CP_TAG: ${{ inputs.control_plane_tag }}
+        run: |
+          set -euo pipefail
+          REPO="${{ vars.DOCKERHUB_CONTROL_PLANE_IMAGE || 'kapil4457/makeway-control-plane' }}"
+          if [ -n "$CP_TAG" ]; then
+            CP_CURRENT="$REPO:$CP_TAG"
+          else
+            CLUSTER="$(terraform output -raw ecs_cluster_name 2>/dev/null || echo makeway)"
+            CP_CURRENT="$(aws ecs describe-task-definition --task-definition "$CLUSTER" \
+              --query 'taskDefinition.containerDefinitions[?name==`app`].image' --output text 2>/dev/null || true)"
+            if [ -z "$CP_CURRENT" ] || [ "$CP_CURRENT" = "None" ]; then
+              CP_CURRENT="$REPO:latest"
+            fi
+          fi
+          echo "cp_image=$CP_CURRENT" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve the platform-UI image
+        id: pin_ui
+        env:
+          UI_TAG: ${{ inputs.frontend_tag }}
+        run: |
+          set -euo pipefail
+          REPO="${{ vars.DOCKERHUB_FRONTEND_IMAGE || 'kapil4457/makeway-frontend' }}"
+          if [ -n "$UI_TAG" ]; then
+            UI_CURRENT="$REPO:$UI_TAG"
+          else
+            CLUSTER="$(terraform output -raw ecs_cluster_name 2>/dev/null || echo makeway)"
+            UI_CURRENT="$(aws ecs describe-task-definition --task-definition "$CLUSTER-ui" \
+              --query 'taskDefinition.containerDefinitions[?name==`ui`].image' --output text 2>/dev/null || true)"
+            if [ -z "$UI_CURRENT" ] || [ "$UI_CURRENT" = "None" ]; then
+              UI_CURRENT="$REPO:latest"
+            fi
+          fi
+          echo "ui_image=$UI_CURRENT" >> "$GITHUB_OUTPUT"
+
       - name: Require required TF_VAR inputs
         env:
           MAKEWAY_KUBE_API_ENDPOINT: ${{ vars.MAKEWAY_KUBE_API_ENDPOINT }}
@@ -71,6 +132,8 @@ jobs:
           TF_VAR_kube_token: ${{ secrets.MAKEWAY_KUBE_TOKEN }}
           # Optional — empty disables TLS verification against the exposed cluster.
           TF_VAR_kube_ca_cert: ${{ vars.MAKEWAY_KUBE_CA_CERT || '' }}
+          TF_VAR_ecs_image: ${{ steps.pin_cp.outputs.cp_image }}
+          TF_VAR_frontend_image: ${{ steps.pin_ui.outputs.ui_image }}
         run: terraform plan -input=false -out=tfplan -no-color
 
       # Ground truth: the zip archive_file just rebuilt must actually contain
@@ -201,10 +264,70 @@ jobs:
         working-directory: terraform
         run: terraform init -input=false
 
+      # Same resolution as the plan job — needed only for the plan-less edge
+      # case (applying the downloaded plan uses the values baked in by the
+      # plan job), matching how the vendor step above is kept idempotent.
+      - name: Resolve the control-plane image
+        id: pin_cp
+        working-directory: terraform
+        env:
+          CP_TAG: ${{ inputs.control_plane_tag }}
+        run: |
+          set -euo pipefail
+          REPO="${{ vars.DOCKERHUB_CONTROL_PLANE_IMAGE || 'kapil4457/makeway-control-plane' }}"
+          if [ -n "$CP_TAG" ]; then
+            CP_CURRENT="$REPO:$CP_TAG"
+          else
+            CLUSTER="$(terraform output -raw ecs_cluster_name 2>/dev/null || echo makeway)"
+            CP_CURRENT="$(aws ecs describe-task-definition --task-definition "$CLUSTER" \
+              --query 'taskDefinition.containerDefinitions[?name==`app`].image' --output text 2>/dev/null || true)"
+            if [ -z "$CP_CURRENT" ] || [ "$CP_CURRENT" = "None" ]; then
+              CP_CURRENT="$REPO:latest"
+            fi
+          fi
+          echo "cp_image=$CP_CURRENT" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve the platform-UI image
+        id: pin_ui
+        working-directory: terraform
+        env:
+          UI_TAG: ${{ inputs.frontend_tag }}
+        run: |
+          set -euo pipefail
+          REPO="${{ vars.DOCKERHUB_FRONTEND_IMAGE || 'kapil4457/makeway-frontend' }}"
+          if [ -n "$UI_TAG" ]; then
+            UI_CURRENT="$REPO:$UI_TAG"
+          else
+            CLUSTER="$(terraform output -raw ecs_cluster_name 2>/dev/null || echo makeway)"
+            UI_CURRENT="$(aws ecs describe-task-definition --task-definition "$CLUSTER-ui" \
+              --query 'taskDefinition.containerDefinitions[?name==`ui`].image' --output text 2>/dev/null || true)"
+            if [ -z "$UI_CURRENT" ] || [ "$UI_CURRENT" = "None" ]; then
+              UI_CURRENT="$REPO:latest"
+            fi
+          fi
+          echo "ui_image=$UI_CURRENT" >> "$GITHUB_OUTPUT"
+
       - name: Terraform Apply
         env:
           TF_VAR_kube_api_endpoint: ${{ vars.MAKEWAY_KUBE_API_ENDPOINT }}
           TF_VAR_kube_token: ${{ secrets.MAKEWAY_KUBE_TOKEN }}
           TF_VAR_kube_ca_cert: ${{ vars.MAKEWAY_KUBE_CA_CERT || '' }}
+          TF_VAR_ecs_image: ${{ steps.pin_cp.outputs.cp_image }}
+          TF_VAR_frontend_image: ${{ steps.pin_ui.outputs.ui_image }}
         working-directory: terraform
         run: terraform apply -input=false -auto-approve ../plan/tfplan
+
+      # terraform apply only updates the task definitions — ECS rolls tasks
+      # on its own, and a green apply says nothing about whether replacement
+      # tasks actually started. Wait for steady state so a stuck rollout
+      # (pull failure, missing capacity) fails this run loudly instead of
+      # serving the old image behind a green check. Both waits: whichever
+      # image a tag input shipped, and a no-op when neither changed.
+      - name: Wait for the ECS rollouts to go stable
+        working-directory: terraform
+        run: |
+          CLUSTER="$(terraform output -raw ecs_cluster_name)"
+          aws ecs wait services-stable --cluster "$CLUSTER" \
+            --services "$(terraform output -raw ecs_service_name)"
+          aws ecs wait services-stable --cluster "$CLUSTER" \
+            --services "$(terraform output -raw ui_service_name)"

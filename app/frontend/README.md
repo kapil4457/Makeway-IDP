@@ -55,7 +55,8 @@ npm run preview    # serve the production build locally
 
 ## Deploy
 
-`deploy-frontend.yaml` builds the image (`build-frontend.yaml` publishes it to Docker
-Hub) and Terraform rolls it onto the same ECS cluster as the control plane, behind the
-ALB. The platform-side configuration is described in the
+`build-frontend.yaml` publishes the image to Docker Hub; dispatch `deploy-infra`
+with the `frontend_tag` input set to the built tag and Terraform rolls it onto
+the same ECS cluster as the control plane, behind the ALB. The platform-side
+configuration is described in the
 [root README](../../README.md#configuration-reference).

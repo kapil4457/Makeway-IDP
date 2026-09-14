@@ -116,7 +116,7 @@ GitHub requires your auth to write these — set under repo **Settings → Secre
 | `OIDC_GITHUB_REPO_ID` | `<github_repo_id>` (from step 2) |
 | `AWS_REGION` | `ap-south-1` |
 
-`OIDC_GITHUB_OWNER_ID` / `OIDC_GITHUB_REPO_ID` are still set here for record, but the `deploy-infra` / `destroy-infra` / `deploy-control-plane` workflows no longer inject them as `TF_VAR_*` — the platform root no longer declares the `github_*` variables. Only `AWS_REGION` is used by the workflows (as `vars.AWS_REGION`).
+`OIDC_GITHUB_OWNER_ID` / `OIDC_GITHUB_REPO_ID` are still set here for record, but the `deploy-infra` / `destroy-infra` workflows no longer inject them as `TF_VAR_*` — the platform root no longer declares the `github_*` variables. Only `AWS_REGION` is used by the workflows (as `vars.AWS_REGION`).
 
 ## After bootstrap
 - CI deploy workflow assumes the role via OIDC. No AWS keys in GitHub.

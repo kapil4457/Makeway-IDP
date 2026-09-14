@@ -392,13 +392,13 @@ How the plumbing works:
 
 | Name | Kind | Used by |
 |---|---|---|
-| `AWS_ROLE_ARN` | 🔒 Secret | `deploy-infra.yaml`, `destroy-infra.yaml`, `deploy-control-plane.yaml`, `deploy-frontend.yaml` — OIDC assume-role |
+| `AWS_ROLE_ARN` | 🔒 Secret | `deploy-infra.yaml`, `destroy-infra.yaml` — OIDC assume-role |
 | `AWS_REGION` | Variable | the deploy workflows above (default `ap-south-1`) |
 | `MAKEWAY_KUBE_API_ENDPOINT` | Variable | the workflows above → `TF_VAR_kube_api_endpoint` |
 | `MAKEWAY_KUBE_TOKEN` | 🔒 Secret | the workflows above → `TF_VAR_kube_token` |
 | `MAKEWAY_KUBE_CA_CERT` | Variable | the workflows above → `TF_VAR_kube_ca_cert` (optional, empty = TLS off) |
-| `DOCKERHUB_CONTROL_PLANE_IMAGE` | Variable | `build-control-plane.yaml` + `deploy-control-plane.yaml` image tag (default `kapil4457/makeway-control-plane`) |
-| `DOCKERHUB_FRONTEND_IMAGE` | Variable | `build-frontend.yaml` + `deploy-frontend.yaml` image tag (default `kapil4457/makeway-frontend`) |
+| `DOCKERHUB_CONTROL_PLANE_IMAGE` | Variable | `build-control-plane.yaml` + `deploy-infra.yaml` (`control_plane_tag` input; default `kapil4457/makeway-control-plane`) |
+| `DOCKERHUB_FRONTEND_IMAGE` | Variable | `build-frontend.yaml` + `deploy-infra.yaml` (`frontend_tag` input; default `kapil4457/makeway-frontend`) |
 | `DOCKERHUB_USERNAME` / `DOCKERHUB_TOKEN` | 🔒 Secrets | `build-control-plane.yaml` + `build-frontend.yaml` docker login + push |
 
 > Set `MAKEWAY_*` (except the DockerHub ones) at **repo level**, not just the
@@ -416,17 +416,17 @@ How the plumbing works:
 ### The required TF_VARs coming from GitHub Actions
 
 `terraform.tfvars` is gitignored, so CI supplies the three **required** inputs
-(no tfvars default) from GitHub Actions instead — wired into `deploy-infra.yaml`,
-`deploy-control-plane.yaml`, `deploy-frontend.yaml` and `destroy-infra.yaml`
-(both plan/apply steps, plus a fail-fast guard that names the missing variable):
+(no tfvars default) from GitHub Actions instead — wired into `deploy-infra.yaml`
+and `destroy-infra.yaml` (both plan/apply steps, plus a fail-fast guard that
+names the missing variable):
 
 | TF_VAR | GHA source | Kind |
 |---|---|---|
 | `TF_VAR_kube_api_endpoint` | `MAKEWAY_KUBE_API_ENDPOINT` | Variable |
 | `TF_VAR_kube_token` | `MAKEWAY_KUBE_TOKEN` | 🔒 Secret |
 | `TF_VAR_kube_ca_cert` | `MAKEWAY_KUBE_CA_CERT` | Variable (optional, default empty) |
-| `TF_VAR_ecs_image` | `DOCKERHUB_CONTROL_PLANE_IMAGE` + `inputs.image_tag` | Variable |
-| `TF_VAR_frontend_image` | `DOCKERHUB_FRONTEND_IMAGE` + `inputs.image_tag` | Variable |
+| `TF_VAR_ecs_image` | `DOCKERHUB_CONTROL_PLANE_IMAGE` + `inputs.control_plane_tag` | Variable |
+| `TF_VAR_frontend_image` | `DOCKERHUB_FRONTEND_IMAGE` + `inputs.frontend_tag` | Variable |
 
 Set `MAKEWAY_*` at **repo level** so the environment-less *plan* job in
 `deploy-infra.yaml` can read them. `MAKEWAY_KUBE_TOKEN` should hold a
