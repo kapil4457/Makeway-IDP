@@ -1,4 +1,4 @@
-# Shared base for the app-2 app — what every app-2 env overlay
+# Shared base for the app-3 app — what every app-3 env overlay
 # (qa/uat/prod) imports. Namespaces are NOT here: each overlay creates exactly
 # its own {app}-{env} via envs/<env>/namespace.yaml, so one overlay never
 # manages the other environments' namespaces. network-policies.yaml ships the

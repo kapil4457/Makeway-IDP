@@ -1,4 +1,4 @@
-# prod overlay for the app-2 app.
+# prod overlay for the app-3 app.
 #
 # Creates this environment's own Namespace (namespace.yaml), imports the app's
 # shared base (../../base — the network policies) and every service
@@ -10,7 +10,7 @@
 # There is deliberately no `namespace:` field here: a kustomize namespace field
 # would also rename the Namespace object imported from namespace.yaml, colliding
 # every env's namespace into one. Instead ArgoCD places each resource into this
-# Application's destination namespace (app-2-prod), which the
+# Application's destination namespace (app-3-prod), which the
 # makeway-apps ApplicationSet sets from the env directory path.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
@@ -18,5 +18,7 @@ resources:
   - namespace.yaml
   - ../../base
   - ../../apps/fast-api
+  - ../../apps/spring-boot
 patches:
   - path: fast-api-patch.yaml
+  - path: spring-boot-patch.yaml
