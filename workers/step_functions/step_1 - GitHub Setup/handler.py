@@ -1204,7 +1204,13 @@ def handler(event, context):
             )
             gitops_path = prefix
 
-            _report(request_id, job_id, "success", execution_arn, gitops_path=gitops_path)
+            # NOT "success": the request only reaches SUCCESS when the whole
+            # pipeline is done, and Step 2's extract is the run's terminal
+            # success reporter (its report is also what triggers the control
+            # plane's row purge). A "success" here would roll the request up
+            # to SUCCESS mid-pipeline and trip Step 2's already-reconciled
+            # guard before anything is provisioned.
+            _report(request_id, job_id, "in_progress", execution_arn, gitops_path=gitops_path)
             logger.info(
                 "Step 1 succeeded (delete env=%s) request_id=%s gitops=%s (merged=%s pr=%s)",
                 env, request_id, gitops_path, publish["merged"], publish.get("pr_url"),
@@ -1248,7 +1254,8 @@ def handler(event, context):
             )
             gitops_path = f"argocd/apps/{app_name}/"
 
-            _report(request_id, job_id, "success", execution_arn, gitops_path=gitops_path)
+            # in_progress, not "success" — same contract as the delete path above.
+            _report(request_id, job_id, "in_progress", execution_arn, gitops_path=gitops_path)
             logger.info(
                 "Step 1 succeeded (all services removed) request_id=%s gitops=%s (merged=%s pr=%s)",
                 request_id, gitops_path, publish["merged"], publish.get("pr_url"),
@@ -1310,10 +1317,13 @@ def handler(event, context):
             for svc in services
         ]
 
+        # in_progress, not "success" — same contract as the delete path above:
+        # the terminal success (and the purge it triggers) belongs to Step 2's
+        # extract, after the XRs are provisioned and reconciled.
         _report(
             request_id,
             job_id,
-            "success",
+            "in_progress",
             execution_arn,
             app_repo_url=app_repo_url,
             gitops_path=gitops_path,
