@@ -36,40 +36,21 @@ data "archive_file" "step2" {
   excludes    = ["__pycache__/**", "__pycache__", "*.pyc"]
 }
 
-# --- GitHub PAT (Secrets Manager) --------------------------------------------
-# Read by the Step-1 Lambda at runtime — never baked into images or repos, and
-# deliberately NOT put through CI or tfvars: Terraform owns the secret
-# CONTAINER only. Populate the VALUE once, out-of-band (rotate by re-running):
+# --- GitHub PAT + app-repo CI credentials (Secrets Manager) -------------------
+# Read by the worker Lambdas at runtime — never baked into images or repos,
+# and deliberately NOT put through CI or tfvars. The secret CONTAINERS are
+# owned by the bootstrap root (terraform/bootstrap, state key
+# "bootstrap/terraform.tfstate") — same reasoning as the CI OIDC identity
+# there: account-level constants that a platform destroy must never remove.
+# A platform destroy used to schedule them for deletion, and AWS rejects
+# CreateSecret for a name still pending deletion, which blocked the next
+# rebuild. This module references them purely BY NAME; the seeding doc (and
+# the put-secret-value commands) live beside the resources in bootstrap.
 #
-#   aws secretsmanager put-secret-value \
-#     --secret-id <var.github_token_secret_name> \
-#     --secret-string "ghp_..."
-#
-# Until then GitHub calls fail loudly (401 / missing secret) rather than
-# silently misbehaving. A terraform-managed empty version is impossible anyway
-# — the API rejects a PutSecretValue with neither SecretString nor SecretBinary.
-resource "aws_secretsmanager_secret" "github_pat" {
-  name        = var.github_token_secret_name
-  description = "GitHub PAT used by the Makeway Step-1 worker (repo creation + gitops PRs)."
-}
-
-# --- App-repo CI credentials (Secrets Manager) -------------------------------
-# Step-1 pushes these into every generated app repo's GitHub Actions config
-# (DOCKERHUB_IMAGE variable + DOCKERHUB_USERNAME/DOCKERHUB_TOKEN/GITOPS_PAT
-# secrets, sealed-box-encrypted at runtime with PyNaCl vendored into the
-# package by deploy-infra). Same container-not-value pattern as the PAT above
-# — populate the VALUE once, out-of-band:
-#
-#   aws secretsmanager put-secret-value \
-#     --secret-id <var.app_repo_ci_secret_name> \
-#     --secret-string '{"dockerhub_image":"...","dockerhub_username":"...","dockerhub_token":"..."}'
-#
-# While the value is unseeded, Step-1 logs a warning and skips injection —
-# repos are still created, their CI just has no credentials yet.
-resource "aws_secretsmanager_secret" "app_repo_ci" {
-  name        = var.app_repo_ci_secret_name
-  description = "CI credentials (Docker Hub image/username/token) injected into app repos' GitHub Actions config by the Step-1 worker."
-}
+# Until a value is seeded, GitHub calls fail loudly (401 / missing secret)
+# rather than silently misbehaving, and Step-1 logs a warning and skips
+# Actions config injection — repos are still created, their CI just has no
+# credentials yet.
 
 # --- IAM — Step-1 Lambda ------------------------------------------------------
 
@@ -84,12 +65,15 @@ data "aws_iam_policy_document" "lambda_assume" {
   }
 }
 
+# The containers live in the bootstrap root, so this policy references them
+# by name. Secret ARNs carry a random 6-char suffix after the name, hence the
+# trailing wildcards (same pattern as the Step-2 prefix policy below).
 data "aws_iam_policy_document" "step1_read_secret" {
   statement {
     actions = ["secretsmanager:GetSecretValue"]
     resources = [
-      aws_secretsmanager_secret.github_pat.arn,
-      aws_secretsmanager_secret.app_repo_ci.arn,
+      "arn:aws:secretsmanager:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:secret:${var.github_token_secret_name}-*",
+      "arn:aws:secretsmanager:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:secret:${var.app_repo_ci_secret_name}-*",
     ]
   }
 }
@@ -143,8 +127,8 @@ resource "aws_lambda_function" "step1" {
   environment {
     variables = {
       GITHUB_OWNER           = var.github_owner
-      GITHUB_TOKEN_SECRET_ID = aws_secretsmanager_secret.github_pat.name
-      APP_REPO_CI_SECRET_ID  = aws_secretsmanager_secret.app_repo_ci.name
+      GITHUB_TOKEN_SECRET_ID = var.github_token_secret_name
+      APP_REPO_CI_SECRET_ID  = var.app_repo_ci_secret_name
       CONTROL_PLANE_URL      = var.control_plane_url
       INTERNAL_API_KEY       = var.internal_api_key
       MAKEWAY_PLATFORM_REPO  = var.makeway_platform_repo
@@ -167,10 +151,14 @@ resource "aws_iam_role" "step2" {
 }
 
 data "aws_iam_policy_document" "step2_permissions" {
+  # The PAT container lives in the bootstrap root — referenced by name
+  # (trailing wildcard for the random ARN suffix, same as the Step-1 policy).
   statement {
-    sid       = "ReadGithubPat"
-    actions   = ["secretsmanager:GetSecretValue"]
-    resources = [aws_secretsmanager_secret.github_pat.arn]
+    sid     = "ReadGithubPat"
+    actions = ["secretsmanager:GetSecretValue"]
+    resources = [
+      "arn:aws:secretsmanager:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:secret:${var.github_token_secret_name}-*",
+    ]
   }
 
   statement {
@@ -267,7 +255,7 @@ resource "aws_lambda_function" "step2" {
       CONTROL_PLANE_URL      = var.control_plane_url
       INTERNAL_API_KEY       = var.internal_api_key
       GITHUB_OWNER           = var.github_owner
-      GITHUB_TOKEN_SECRET_ID = aws_secretsmanager_secret.github_pat.name
+      GITHUB_TOKEN_SECRET_ID = var.github_token_secret_name
       MAKEWAY_PLATFORM_REPO  = var.makeway_platform_repo
       # Fallback cluster only — per-env endpoint/token/CA come from the
       # Cluster registry via get_request_details.

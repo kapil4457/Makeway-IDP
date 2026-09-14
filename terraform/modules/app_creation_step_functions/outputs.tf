@@ -19,8 +19,8 @@ output "step1_zip_path" {
 }
 
 output "github_pat_secret_name" {
-  description = "Name of the Secrets Manager secret holding the GitHub PAT."
-  value       = aws_secretsmanager_secret.github_pat.name
+  description = "Name of the Secrets Manager secret holding the GitHub PAT (container owned by the bootstrap root)."
+  value       = var.github_token_secret_name
 }
 
 output "step2_function_arn" {
