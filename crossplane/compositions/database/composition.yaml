@@ -205,6 +205,7 @@ spec:
                 transforms:
                   - type: math
                     math:
+                      type: Multiply
                       multiply: 10
               # the password Secret lives next to the pod: {xrName}-creds in the
               # XR's namespace. v2 XRs carry no claim labels, so read the XR's
