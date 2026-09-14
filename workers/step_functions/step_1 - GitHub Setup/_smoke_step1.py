@@ -497,19 +497,18 @@ def _recording_gh(calls):
     return fake_gh
 
 
-def _expected_sequence(repo):
-    owner = m.GITHUB_OWNER
-    return [
-        ("GET", f"/repos/{owner}/{repo}/actions/secrets/public-key", None),
-        ("PUT", f"/repos/{owner}/{repo}/actions/secrets/DOCKERHUB_USERNAME"),
-        ("PUT", f"/repos/{owner}/{repo}/actions/secrets/DOCKERHUB_TOKEN"),
-        ("PUT", f"/repos/{owner}/{repo}/actions/secrets/GITOPS_PAT"),
-        ("PUT", f"/repos/{owner}/{repo}/actions/variables/DOCKERHUB_IMAGE"),
-    ]
+def _recording_gh_status(calls, post_status=201):
+    """Mirrors _recording_gh for _gh_status: records and returns (status, body)."""
+    def fake_gh_status(method, path, payload=None):
+        calls.append((method, path, payload))
+        if method == "GET" and path.endswith("/actions/secrets/public-key"):
+            return 200, {"key_id": "test-key-id", "key": PK_B64}
+        return (post_status, {})
+    return fake_gh_status
 
 
-saved_ci_id, saved_ci_secrets, saved_ci_token, saved_ci_gh, saved_encrypt = (
-    m.APP_REPO_CI_SECRET_ID, m._secrets_client, m._github_token, m._gh, m._encrypt_secret,
+saved_ci_id, saved_ci_secrets, saved_ci_token, saved_ci_gh, saved_ci_gh_status, saved_encrypt = (
+    m.APP_REPO_CI_SECRET_ID, m._secrets_client, m._github_token, m._gh, m._gh_status, m._encrypt_secret,
 )
 try:
     repo = "orders-app"
@@ -518,6 +517,7 @@ try:
     m.APP_REPO_CI_SECRET_ID = ""
     calls = []
     m._gh = _recording_gh(calls)
+    m._gh_status = _recording_gh_status(calls)
     m._secrets_client = _FakeSecrets()
     _log_capture.clear()
     m._inject_repo_ci_config(repo)
@@ -533,6 +533,7 @@ try:
     fake.get_secret_value = lambda SecretId: {"SecretString": json.dumps({"dockerhub_image": "x"})}
     m._secrets_client = fake
     m._gh = _recording_gh(calls := [])
+    m._gh_status = _recording_gh_status(calls)
     _log_capture.clear()
     m._inject_repo_ci_config(repo)
     check(
@@ -545,11 +546,12 @@ try:
         str(calls),
     )
 
-    # (c) Happy path: 1 public-key GET, 3 secret PUTs, 1 variable PUT.
+    # (c) Happy path: 1 public-key GET, 3 secret PUTs, 1 variable POST.
     m._secrets_client = _FakeSecrets()
     m._github_token = None  # cold cache — GITOPS_PAT comes from the PAT secret
     calls = []
     m._gh = _recording_gh(calls)
+    m._gh_status = _recording_gh_status(calls)
     if not have_nacl:
         m._encrypt_secret = lambda pk_b64, value: base64.b64encode(
             f"fake-sealed:{value}".encode("utf-8")
@@ -559,14 +561,19 @@ try:
 
     check("public-key GET is first", calls[0] == ("GET", f"/repos/{m.GITHUB_OWNER}/{repo}/actions/secrets/public-key", None))
     check(
-        "3 secret PUTs + 1 variable PUT in order",
+        "3 secret PUTs + 1 variable POST in order",
         [c[1] for c in calls[1:]] == [
             f"/repos/{m.GITHUB_OWNER}/{repo}/actions/secrets/DOCKERHUB_USERNAME",
             f"/repos/{m.GITHUB_OWNER}/{repo}/actions/secrets/DOCKERHUB_TOKEN",
             f"/repos/{m.GITHUB_OWNER}/{repo}/actions/secrets/GITOPS_PAT",
-            f"/repos/{m.GITHUB_OWNER}/{repo}/actions/variables/DOCKERHUB_IMAGE",
+            f"/repos/{m.GITHUB_OWNER}/{repo}/actions/variables",
         ],
         str(calls),
+    )
+    check(
+        "variable POST is the recorded HTTP-status call",
+        calls[-1][0] == "POST" and calls[-1][1] == f"/repos/{m.GITHUB_OWNER}/{repo}/actions/variables",
+        str(calls[-1]),
     )
     secret_puts = {c[1].rsplit("/", 1)[-1]: c[2] for c in calls if "/actions/secrets/" in c[1] and c[0] == "PUT"}
     check(
@@ -578,8 +585,8 @@ try:
         str(secret_puts),
     )
     check(
-        "variable PUT carries the plaintext image name",
-        calls[-1][2] == {"value": "kapil4457/makeway-apps"},
+        "variable POST carries name + plaintext image value",
+        calls[-1][2] == {"name": "DOCKERHUB_IMAGE", "value": "kapil4457/makeway-apps"},
         str(calls[-1]),
     )
     check(
@@ -611,7 +618,8 @@ try:
         str(secret_puts),
     )
 
-    # (d) Idempotent second run — PUT is create-or-update, so re-running the
+    # (d) Idempotent second run — secret PUTs are create-or-update and the
+    #     variable POSTs again (201 from the fake), so re-running the
     #     injection on an existing repo is safe and repeats the same shape.
     before = len(calls)
     m._inject_repo_ci_config(repo)
@@ -621,11 +629,27 @@ try:
         str(len(calls)),
     )
 
+    # (d2) Variable already exists -> POST 409, then PATCH updates it
+    #      (repo variables have no create-or-update PUT).
+    calls.clear()
+    m._gh_status = _recording_gh_status(calls, post_status=409)
+    m._inject_repo_ci_config(repo)
+    check(
+        "409 from POST falls back to PATCH on the variable path",
+        any(
+            c[0] == "PATCH" and c[1] == f"/repos/{m.GITHUB_OWNER}/{repo}/actions/variables/DOCKERHUB_IMAGE"
+            and c[2] == {"name": "DOCKERHUB_IMAGE", "value": "kapil4457/makeway-apps"}
+            for c in calls
+        ),
+        str(calls),
+    )
+
     # (e) GitHub failure -> warning, no raise (warn-and-continue contract).
     def _exploding_gh(method, path, payload=None, params=None):
         raise RuntimeError("github GET /repos/x/actions/secrets/public-key -> HTTP 500")
 
     m._gh = _exploding_gh
+    m._gh_status = _exploding_gh
     _log_capture.clear()
     try:
         m._inject_repo_ci_config(repo)
@@ -637,6 +661,7 @@ finally:
     m._secrets_client = saved_ci_secrets
     m._github_token = saved_ci_token
     m._gh = saved_ci_gh
+    m._gh_status = saved_ci_gh_status
     m._encrypt_secret = saved_encrypt
 
 # 15. Static call-site contract: injection runs after the repo exists and

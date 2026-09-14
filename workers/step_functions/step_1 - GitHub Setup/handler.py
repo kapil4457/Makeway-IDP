@@ -303,8 +303,9 @@ def _inject_repo_ci_config(repo: str) -> None:
     DOCKERHUB_USERNAME / DOCKERHUB_TOKEN / GITOPS_PAT as encrypted repo
     secrets (GITOPS_PAT reuses the platform PAT Step-1 already holds) and
     DOCKERHUB_IMAGE as a plaintext repo variable. Runs BEFORE the first push
-    so the scaffolded workflows can build and push images on it. PUT is
-    create-or-update, so update-request re-runs self-heal an existing repo.
+    so the scaffolded workflows can build and push images on it. Secret PUTs
+    are create-or-update; the variable is POSTed and PATCHed on 409 — so
+    update-request re-runs self-heal an existing repo either way.
 
     Best-effort by design: an unset/missing secret, a missing key, or a GitHub
     failure is logged and skipped — repo creation never blocks on optional CI
@@ -343,11 +344,24 @@ def _inject_repo_ci_config(repo: str) -> None:
                 f"/repos/{GITHUB_OWNER}/{repo}/actions/secrets/{name}",
                 {"encrypted_value": _encrypt_secret(pk["key"], value), "key_id": key_id},
             )
-        _gh(
-            "PUT",
-            f"/repos/{GITHUB_OWNER}/{repo}/actions/variables/DOCKERHUB_IMAGE",
-            {"value": creds["dockerhub_image"]},
+        # Repo VARIABLES have no create-or-update PUT (repo secrets do): POST
+        # /actions/variables creates, 409 means the name already exists and
+        # PATCH updates it. A plain PUT here 404s — which silently dropped the
+        # variable while the secrets still landed.
+        var_payload = {"name": "DOCKERHUB_IMAGE", "value": creds["dockerhub_image"]}
+        status, _body = _gh_status(
+            "POST", f"/repos/{GITHUB_OWNER}/{repo}/actions/variables", var_payload
         )
+        if status == 409:
+            _gh(
+                "PATCH",
+                f"/repos/{GITHUB_OWNER}/{repo}/actions/variables/DOCKERHUB_IMAGE",
+                var_payload,
+            )
+        elif not 200 <= status < 300:
+            raise RuntimeError(
+                f"github POST /repos/{GITHUB_OWNER}/{repo}/actions/variables -> HTTP {status}"
+            )
         logger.info("Actions config set on %s (3 secrets, 1 variable)", repo)
     except Exception as exc:  # noqa: BLE001 — credentials are optional; never block the repo
         logger.warning("skipping Actions config injection for %s: %s", repo, exc)
