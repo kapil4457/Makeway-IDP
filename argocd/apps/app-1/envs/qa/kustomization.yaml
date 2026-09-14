@@ -19,6 +19,8 @@ resources:
   - ../../base
   - ../../apps/app-1-service-1
   - ../../apps/node-svc
+  - ../../apps/fast-api
 patches:
   - path: app-1-service-1-patch.yaml
   - path: node-svc-patch.yaml
+  - path: fast-api-patch.yaml
