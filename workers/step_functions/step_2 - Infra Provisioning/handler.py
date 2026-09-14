@@ -706,7 +706,48 @@ def _capability_is_removed(cap: dict, removed: set[tuple[str | None, str]]) -> b
 # Apply action
 # --------------------------------------------------------------------------- #
 
+def _ensure_namespace(claim: dict) -> None:
+    """Idempotently ensure the claim's namespace exists before applying.
+
+    The namespace normally arrives via gitops (Step-1's PR -> ArgoCD sync of
+    base/namespaces.yaml), but Step-2 runs immediately after Step-1 — long
+    before that side lands — and a missing namespace fails the apply's first
+    upsert with "namespaces not found". Create it here; ArgoCD later adopts
+    it from gitops. Never deletes: teardown stays ArgoCD's (see _delete_claim).
+    """
+    namespace = claim["namespace"]
+    endpoint, token, ca_cert = _claim_kube(claim)
+    status, body = _kube_get(
+        "/api/v1/namespaces", namespace, endpoint=endpoint, token=token, ca_cert=ca_cert
+    )
+    if status == 200:
+        return
+    if status != 404:
+        detail = json.dumps(body)[:500] if isinstance(body, (dict, list)) else str(body)
+        raise RuntimeError(f"kube namespaces/{namespace} -> HTTP {status}: {detail}")
+    status, body = _kube(
+        "POST",
+        "/api/v1/namespaces",
+        {
+            "apiVersion": "v1",
+            "kind": "Namespace",
+            "metadata": {"name": namespace, "labels": {"managed-by": "makeway"}},
+        },
+        endpoint=endpoint,
+        token=token,
+        ca_cert=ca_cert,
+    )
+    if status == 409:
+        # A concurrent creator (e.g. ArgoCD) won the race — it exists now.
+        return
+    if not 200 <= status < 300:
+        detail = json.dumps(body)[:500] if isinstance(body, (dict, list)) else str(body)
+        raise RuntimeError(f"kube POST namespaces/{namespace} -> HTTP {status}: {detail}")
+    logger.info("created namespace %s (gitops side had not landed yet)", namespace)
+
+
 def _apply_claim(claim: dict) -> None:
+    _ensure_namespace(claim)
     namespace = claim["namespace"]
     manifest = _claim_manifest(claim)
     endpoint, token, ca_cert = _claim_kube(claim)

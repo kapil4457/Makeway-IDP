@@ -336,6 +336,68 @@ check(
     m._claim_iam_user(iam_claim),
 )
 
+# 15. apply ensures the namespace before any upsert (app-6 regression: Step-2
+#     runs before ArgoCD syncs the gitops namespace, and the {claim}-creds
+#     Secret upsert failed with "namespaces not found"). Everything kube-side
+#     flows through m._kube, so stubbing that one seam records the full order.
+real_kube = m._kube
+kube_calls = []
+
+
+def fake_kube(method, path, *args, **kwargs):
+    kube_calls.append((method, path))
+    if method == "GET":
+        return 404, None
+    return 201, {}
+
+
+m._kube = fake_kube
+m._apply_claim(iam_claim)
+m._kube = real_kube
+check(
+    "apply: namespace ensured first (GET then POST)",
+    kube_calls[:2]
+    == [("GET", "/api/v1/namespaces/order-service-qa"), ("POST", "/api/v1/namespaces")],
+    str(kube_calls[:2]),
+)
+check(
+    "apply: ns create precedes the -creds Secret and XR upserts",
+    kube_calls[2][1].endswith("/secrets/order-service-qa-orders-creds")
+    and "relationaldatabases" in kube_calls[4][1],
+    str(kube_calls[2:5]),
+)
+
+#    Namespace already present (ArgoCD won the race) -> adopted, never re-created.
+kube_calls.clear()
+m._kube = lambda method, path, *a, **kw: (
+    ((200, {}) if method == "GET" else (201, {}))
+)
+m._apply_claim(iam_claim)
+m._kube = real_kube
+check(
+    "apply: existing namespace adopted, no create",
+    ("POST", "/api/v1/namespaces") not in kube_calls,
+    str(kube_calls[:2]),
+)
+
+#    Concurrent creator wins the POST (409) -> tolerated, apply proceeds.
+kube_calls.clear()
+def fake_kube_409(method, path, *args, **kwargs):
+    kube_calls.append((method, path))
+    if method == "GET":
+        return 404, None
+    if path == "/api/v1/namespaces":
+        return 409, {}
+    return 201, {}
+m._kube = fake_kube_409
+try:
+    m._apply_claim(iam_claim)
+    check("apply: ns POST 409 tolerated", ("POST", "/api/v1/namespaces") in kube_calls)
+except Exception as exc:  # noqa: BLE001
+    check("apply: ns POST 409 tolerated", False, repr(exc))
+finally:
+    m._kube = real_kube
+
 print()
 if fails:
     sys.exit("FAILED: " + ", ".join(fails))
