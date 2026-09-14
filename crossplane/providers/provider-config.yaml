@@ -9,3 +9,22 @@ spec:
       namespace: crossplane-system
       name: provider-creds
       key: creds
+---
+# v2-native twin of the ProviderConfig above: the v2 provider packages
+# (rds/aws.m.upbound.io and friends) resolve credentials through
+# ClusterProviderConfig — providerConfigRef {name: makeway, kind:
+# ClusterProviderConfig} in the compositions. Same Secret, same key; no new
+# values. Bootstrap-only: not in the kustomization roots.
+apiVersion: aws.m.upbound.io/v1beta1
+kind: ClusterProviderConfig
+metadata:
+  name: makeway
+  annotations:
+    managed-by: makeway
+spec:
+  credentials:
+    source: Secret
+    secretRef:
+      namespace: crossplane-system
+      name: provider-creds
+      key: creds

@@ -62,6 +62,7 @@ spec:
                 transforms:
                   - type: string
                     string:
+                      type: Format
                       fmt: "%s-dlq"
             connectionDetails:
               - type: FromFieldPath

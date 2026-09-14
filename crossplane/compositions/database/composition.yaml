@@ -5,12 +5,12 @@
 # the XR's parameters into the composed Managed Resources below.
 #
 # Wiring (following the platform RDS module, terraform/modules/rds/):
-#   - DBSubnetGroup     → the platform VPC's private subnets (platformVpcId /
+#   - SubnetGroup       → the platform VPC's private subnets (platformVpcId /
 #                         platformSubnetIds XR params, supplied by the Step-2
 #                         Lambda from SSM at provision time)
 #   - SecurityGroup     → in the platform VPC, one ingress rule on TCP 5432
 #   - SecurityGroupRule → source CIDR (EKS worker SG on managed EKS, dev IP on local)
-#   - DBInstance        → postgres, engineVersion param, port 5432, gp3, encrypted,
+#   - Instance          → postgres, engineVersion param, port 5432, gp3, encrypted,
 #                         1-day backup, skipFinalSnapshot, NOT publicly accessible
 #
 # Password flow: the Step-2 Lambda generates the master password and writes a K8s
@@ -58,7 +58,7 @@ spec:
           - name: subnetgroup
             base:
               apiVersion: rds.aws.m.upbound.io/v1beta1
-              kind: DBSubnetGroup
+              kind: SubnetGroup
               spec:
                 forProvider:
                   region: ap-south-1
@@ -67,6 +67,7 @@ spec:
                     managed-by: makeway
                 providerConfigRef:
                   name: makeway
+                  kind: ClusterProviderConfig
             patches:
               - type: FromCompositeFieldPath
                 fromFieldPath: spec.parameters.region
@@ -89,6 +90,7 @@ spec:
                     managed-by: makeway
                 providerConfigRef:
                   name: makeway
+                  kind: ClusterProviderConfig
             patches:
               - type: FromCompositeFieldPath
                 fromFieldPath: spec.parameters.region
@@ -111,12 +113,14 @@ spec:
                   protocol: tcp
                   cidrBlocks:
                     - 0.0.0.0/0
-                  # Cross-resource reference: `securitygroup` is the composition
-                  # resource name above; the function resolves it to the SG's id.
-                  securityGroupIdRef:
-                    name: securitygroup
+                  # Cross-resource wiring, v2-style: the provider resolves this
+                  # selector to the one SecurityGroup this XR controls (ownerRef
+                  # match) — no function-side ref substitution needed.
+                  securityGroupIdSelector:
+                    matchControllerRef: true
                 providerConfigRef:
                   name: makeway
+                  kind: ClusterProviderConfig
             patches:
               - type: FromCompositeFieldPath
                 fromFieldPath: spec.parameters.region
@@ -129,7 +133,7 @@ spec:
           - name: dbinstance
             base:
               apiVersion: rds.aws.m.upbound.io/v1beta1
-              kind: DBInstance
+              kind: Instance
               spec:
                 forProvider:
                   region: ap-south-1
@@ -148,13 +152,14 @@ spec:
                   # by the FromCompositeFieldPath patches below.
                   passwordSecretRef:
                     name: __CLAIM_NAME__-creds
-                    namespace: __CLAIM_NAMESPACE__
                     key: password
-                  # Cross-resource references to the two resources above.
-                  dbSubnetGroupNameRef:
-                    name: subnetgroup
-                  vpcSecurityGroupIdsRefs:
-                    - name: securitygroup
+                  # Cross-resource wiring, v2-style: selectors resolved by the
+                  # provider against the resources this XR controls (ownerRef
+                  # match) — no function-side ref substitution needed.
+                  dbSubnetGroupNameSelector:
+                    matchControllerRef: true
+                  vpcSecurityGroupIdSelector:
+                    matchControllerRef: true
                   publiclyAccessible: false
                   skipFinalSnapshot: true
                   backupRetentionPeriod: 1
@@ -164,6 +169,7 @@ spec:
                     managed-by: makeway
                 providerConfigRef:
                   name: makeway
+                  kind: ClusterProviderConfig
             patches:
               - type: FromCompositeFieldPath
                 fromFieldPath: spec.parameters.region
@@ -184,6 +190,12 @@ spec:
                 fromFieldPath: spec.parameters.capacity
                 toFieldPath: spec.forProvider.instanceClass
                 transforms:
+                  # capacity arrives as a JSON number; map lookups only resolve
+                  # string keys, so convert to string first (transforms apply
+                  # in sequence).
+                  - type: convert
+                    convert:
+                      toType: string
                   - type: map
                     map:
                       "1": db.t4g.micro
@@ -209,17 +221,16 @@ spec:
                       multiply: 10
               # the password Secret lives next to the pod: {xrName}-creds in the
               # XR's namespace. v2 XRs carry no claim labels, so read the XR's
-              # own metadata.name / metadata.namespace to locate the Secret.
+              # own metadata.name to locate the Secret; the v2 secretRef carries
+              # only name/key — the namespace is implicit (the MR's own).
               - type: FromCompositeFieldPath
                 fromFieldPath: metadata.name
                 toFieldPath: spec.forProvider.passwordSecretRef.name
                 transforms:
                   - type: string
                     string:
+                      type: Format
                       fmt: "%s-creds"
-              - type: FromCompositeFieldPath
-                fromFieldPath: metadata.namespace
-                toFieldPath: spec.forProvider.passwordSecretRef.namespace
             connectionDetails:
               - type: FromFieldPath
                 name: endpoint
@@ -235,3 +246,4 @@ spec:
                 fromFieldPath: spec.forProvider.username
               - type: FromConnectionSecretKey
                 name: password
+                fromConnectionSecretKey: password
