@@ -1,0 +1,11 @@
+# The app-4-prod Namespace — created by this overlay and no other.
+# Each env overlay owns exactly one Namespace ({app}-{env}), so the qa
+# Application never creates or manages uat/prod (and vice versa).
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: app-4-prod
+  labels:
+    app: app-4
+    environment: prod
+    managed-by: makeway
