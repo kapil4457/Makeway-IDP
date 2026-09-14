@@ -89,26 +89,57 @@ jobs:
           CLUSTER="$(terraform output -raw ecs_cluster_name 2>/dev/null || true)"
           # Drain every platform service that still exists (control plane +
           # platform UI — both run in the same cluster and must be drained
-          # before the capacity provider can release its instances).
+          # before the capacity provider can release its instances). Gated on
+          # the LIVE service status: update/delete/wait all error on a service
+          # a previous partial run already left DRAINING or deleted, and this
+          # step must stay idempotent so a re-run can finish a partial destroy.
           SERVICES=()
-          CP="$(terraform output -raw ecs_service_name 2>/dev/null || true)"
-          UI="$(terraform output -raw ui_service_name 2>/dev/null || true)"
-          if [ -n "$CP" ]; then SERVICES+=("$CP"); fi
-          if [ -n "$UI" ]; then SERVICES+=("$UI"); fi
+          for NAME in \
+            "$(terraform output -raw ecs_service_name 2>/dev/null || true)" \
+            "$(terraform output -raw ui_service_name 2>/dev/null || true)"
+          do
+            [ -n "$NAME" ] || continue
+            STATUS="$(aws ecs describe-services --region "$AWS_REGION" \
+              --cluster "$CLUSTER" --service "$NAME" \
+              --query 'services[0].status' --output text 2>/dev/null || true)"
+            if [ "$STATUS" = "ACTIVE" ] || [ "$STATUS" = "DRAINING" ]; then
+              SERVICES+=("$NAME")
+            fi
+          done
           if [ -n "$CLUSTER" ] && [ "${#SERVICES[@]}" -gt 0 ]; then
             for SERVICE in "${SERVICES[@]}"; do
-              # Stop each service's task so DeleteService doesn't hang waiting on
-              # a RUNNING task (the capacity provider also can't drain while it runs).
+              # Stop each service's tasks (--force bypasses a stuck deployment
+              # circuit breaker) so the force-delete below completes fast.
               aws ecs update-service --region "$AWS_REGION" --cluster "$CLUSTER" \
-                --service "$SERVICE" --desired-count 0 >/dev/null
+                --service "$SERVICE" --desired-count 0 --force >/dev/null || true
             done
-            aws ecs wait services-stable --region "$AWS_REGION" \
-              --cluster "$CLUSTER" --services "${SERVICES[@]}"
+            for SERVICE in "${SERVICES[@]}"; do
+              # Force-DELETE the services HERE and wait for INACTIVE — leaving
+              # the delete to Terraform is what wedged the first destroy: the
+              # service sat in DRAINING (a task stuck STOPPING after its
+              # container instance was reaped) past the provider's 20m delete
+              # timeout. Terraform then finds them gone at refresh and just
+              # drops them from state.
+              aws ecs delete-service --region "$AWS_REGION" --cluster "$CLUSTER" \
+                --service "$SERVICE" --force >/dev/null || true
+            done
+            for SERVICE in "${SERVICES[@]}"; do
+              aws ecs wait services-inactive --region "$AWS_REGION" \
+                --cluster "$CLUSTER" --service "$SERVICE" \
+                || echo "::warning::$SERVICE did not reach INACTIVE — Terraform's delete wait will handle it."
+            done
           fi
-          # Scale the container-instance ASG to zero. Without this the capacity
-          # provider's managed scaling (target_capacity=100) keeps terminating
-          # the idle instance while the ASG relaunches one -> stop/start churn
-          # that blocks DeleteCapacityProvider until the provider times out.
+          # Scale the container-instance ASG to zero — only AFTER the services
+          # are INACTIVE, so managed draining never has a task to hold on the
+          # instance (a stopping task keeps instance protection on, which
+          # blocks both the termination and the service delete — the stuck
+          # state the first destroy died in). Two more reasons for this block:
+          # releasing scale-in protection lets desired-capacity 0 actually
+          # terminate (protect_from_scale_in = true otherwise blocks it), and
+          # without the scale-to-zero the capacity provider's managed scaling
+          # (target_capacity=100) keeps terminating the idle instance while
+          # the ASG relaunches one -> churn that blocks DeleteCapacityProvider
+          # until the provider times out.
           ASG="$(aws autoscaling describe-auto-scaling-groups --region "$AWS_REGION" \
             --query "AutoScalingGroups[?Tags[?Key=='AmazonECSManaged']].AutoScalingGroupName" \
             --output text)"
@@ -116,8 +147,6 @@ jobs:
             INSTANCES="$(aws autoscaling describe-auto-scaling-groups --region "$AWS_REGION" \
               --auto-scaling-group-name "$ASG" \
               --query "AutoScalingGroups[0].Instances[].InstanceId" --output text)"
-            # Release scale-in protection so desired-capacity 0 can actually
-            # terminate the instance (protect_from_scale_in = true otherwise blocks it).
             if [ -n "$INSTANCES" ]; then
               aws autoscaling set-instance-protection --region "$AWS_REGION" \
                 --auto-scaling-group-name "$ASG" --instance-ids $INSTANCES \
@@ -133,4 +162,9 @@ jobs:
           TF_VAR_kube_api_endpoint: ${{ vars.MAKEWAY_KUBE_API_ENDPOINT }}
           TF_VAR_kube_token: ${{ secrets.MAKEWAY_KUBE_TOKEN }}
           TF_VAR_kube_ca_cert: ${{ vars.MAKEWAY_KUBE_CA_CERT || '' }}
-        run: terraform apply -input=false -auto-approve tfdestroy
+        # terraform destroy (fresh refresh + plan + apply) instead of applying
+        # the pre-drain tfdestroy: the drain force-deleted the services, so
+        # that plan file is stale — replaying it would call DeleteService on
+        # resources that no longer exist. destroy re-plans after the drain, so
+        # already-deleted resources are dropped at refresh for free.
+        run: terraform destroy -input=false -auto-approve -no-color

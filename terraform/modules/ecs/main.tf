@@ -275,6 +275,14 @@ resource "aws_ecs_service" "this" {
     assign_public_ip = false
   }
 
+  # DeleteService headroom beyond the provider's 20m default: on destroy a
+  # service can sit in DRAINING for a while (task stop -> ENI teardown -> ALB
+  # deregistration) before flipping to INACTIVE — that wait expired at exactly
+  # 20m and failed the first destroy run.
+  timeouts {
+    delete = "40m"
+  }
+
   depends_on = [
     aws_ecs_cluster_capacity_providers.this,
     aws_iam_role_policy_attachment.execution,
@@ -357,6 +365,11 @@ resource "aws_ecs_service" "ui" {
     subnets          = var.subnet_ids
     security_groups  = [aws_security_group.app.id]
     assign_public_ip = false
+  }
+
+  # Same DRAINING headroom as the control-plane service above.
+  timeouts {
+    delete = "40m"
   }
 
   depends_on = [
