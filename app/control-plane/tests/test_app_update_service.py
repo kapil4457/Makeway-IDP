@@ -981,6 +981,65 @@ def test_access_patch_negative_paths() -> None:
         assert svc.svcName == "billing-prod"
 
 
+def test_capability_access_scopes_to_own_app_on_name_collision() -> None:
+    """Two apps each running an identically-named service (svcName is unique
+    only WITHIN an app): a capability added to the second app must bind to the
+    second app's service row, never the first app's. An edge on the wrong
+    app's row makes the capability invisible to its own portal page and to
+    the infra-provisioning worker, which both derive through access edges."""
+    _seed_created_app()  # app "order-service" with its orders-api-qa row
+
+    # A second app in the same team, with its OWN orders-api-qa row.
+    with Session(db_engine.engine) as session:
+        team = session.exec(select(Team)).first()
+        cluster = session.exec(
+            select(Cluster).where(Cluster.environment == "qa")
+        ).first()
+        app2 = App(appName="billing-service", teamId=team.teamId)
+        session.add(app2)
+        session.flush()
+        svc2 = Service(
+            svcName="orders-api-qa",
+            serviceType=ServiceType.FAST_API,
+            clusterId=cluster.clusterId,
+            appId=app2.appId,
+        )
+        session.add(svc2)
+        session.commit()
+        app2_id, svc2_id = app2.appId, svc2.svcId
+
+    # Repository level: the app-scoped lookup resolves the right row.
+    with Session(db_engine.engine) as session:
+        repo = ServiceRepository(session)
+        assert repo.get_by_name("orders-api-qa", app_id=app2_id).svcId == svc2_id
+
+    # Service level: add a rel_database capability to the SECOND app, granting
+    # access to "orders-api" — the colliding name.
+    queue = _RecordingQueue()
+    with Session(db_engine.engine) as session:
+        service = _build_service(session, queue)
+        user = session.exec(select(User)).first()
+
+        response = service.submit(
+            app_name="billing-service",
+            updates=_db_update(),
+            user=user,
+            idempotency_key="collision-key-1",
+        )
+
+    assert response.status == "pending"
+
+    with Session(db_engine.engine) as session:
+        # The new edge points at the second app's row, not the first app's.
+        accesses = session.exec(select(CapabilityAccess)).all()
+        new_edges = [a for a in accesses if a.capabilityId != 1]
+        assert len(new_edges) == 1
+        assert new_edges[0].serviceId == svc2_id
+
+        request = session.get(Request, response.request_id)
+        assert request.appId == app2_id
+
+
 def _reset_db() -> None:
     """Fresh database per test (unique keys collide on a shared file)."""
     SQLModel.metadata.drop_all(db_engine.engine)
@@ -1035,5 +1094,9 @@ if __name__ == "__main__":
     _reset_db()
     test_access_patch_negative_paths()
     print("test_access_patch_negative_paths .... OK")
+
+    _reset_db()
+    test_capability_access_scopes_to_own_app_on_name_collision()
+    print("test_capability_access_scopes_to_own_app_on_name_collision .... OK")
 
     print("All AppUpdateService tests passed.")

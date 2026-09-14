@@ -134,7 +134,9 @@ class AppUpdateService:
             for service in update.services:
                 service_name = service.service_name or service.service_type.value
                 svc_name = f"{service_name}-{env.value}"
-                svc = self.serviceRepository.get_by_name(svc_name)
+                # app_id scope: svcName is only unique within an app — another
+                # app may already run a service with the same row name.
+                svc = self.serviceRepository.get_by_name(svc_name, app_id=app.appId)
                 if svc is not None and svc.appId != app.appId:
                     raise InvalidRequestException(
                         message=f"Service name '{svc_name}' is already used by "
@@ -607,9 +609,18 @@ class AppUpdateService:
             existing.modifiedBy = user.email
 
         for service_name in capability.access_to:
+            # app_id scope: another app may run a service with the same row
+            # name ({base}-{env}) — binding an edge to it would make this
+            # capability invisible to its own app (status read and worker
+            # claims both derive through access edges).
             svc = self.serviceRepository.get_by_name(
-                f"{service_name}-{env.value}"
+                f"{service_name}-{env.value}", app_id=app.appId
             )
+            if svc is None:
+                raise InvalidRequestException(
+                    message=f"Service '{service_name}' does not exist in "
+                            f"environment '{env.value}'."
+                )
             already = any(
                 access.serviceId == svc.svcId
                 for access in self.capabilityAccessRepository.get_by_capability(

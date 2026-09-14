@@ -15,17 +15,22 @@ class ServiceRepository:
 
         return self.session.exec(statement).first()
 
-    def get_by_name(self, svc_name: str) -> Service | None:
+    def get_by_name(self, svc_name: str, app_id: int | None = None) -> Service | None:
         """
-        Get a service by its name.
+        Get one of an application's services by its full row name
+        (``{base}-{env}``, e.g. ``orders-api-qa``).
 
-        A service name is globally unique because it is derived from the
-        service name plus the environment. See how `svcName` is set during
-        app creation (e.g. ``orders-api-qa``).
+        svcName is unique only WITHIN an app: two apps each get their own
+        ``orders-api-qa`` row, so a lookup without ``app_id`` can return
+        another application's row. Callers that resolve a name on behalf of
+        an app must pass ``app_id``.
         """
         statement = select(Service).where(
             Service.svcName == svc_name
         )
+
+        if app_id is not None:
+            statement = statement.where(Service.appId == app_id)
 
         return self.session.exec(statement).first()
 

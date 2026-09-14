@@ -149,8 +149,11 @@ class AppCreationService:
                 if capability.access_to:
                     bound_services: list[Service] = []
                     for service_name in capability.access_to:
+                        # app_id scope: svcName is only unique within an app —
+                        # an unscoped lookup could bind the capability to
+                        # another application's identically-named service.
                         service_obj = self.serviceRepository.get_by_name(
-                            f"{service_name}-{env.value}"
+                            f"{service_name}-{env.value}", app_id=app.appId
                         )
                         if service_obj is None:
                             raise InvalidRequestException(
