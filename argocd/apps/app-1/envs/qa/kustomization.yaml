@@ -1,0 +1,22 @@
+# qa overlay for the app-1 app.
+#
+# Creates this environment's own Namespace (namespace.yaml), imports the app's
+# shared base (../../base — the network policies) and every service
+# (../../apps/*), then patches each service's image tag. Makeway CI rewrites the
+# patch files (<service>-patch.yaml) when this environment's branch merges
+# (feature/* -> qa, release/* -> uat, main -> prod). Each patch is listed as an
+# object ("- path: ..."), the non-deprecated form of patchesStrategicMerge.
+#
+# There is deliberately no `namespace:` field here: a kustomize namespace field
+# would also rename the Namespace object imported from namespace.yaml, colliding
+# every env's namespace into one. Instead ArgoCD places each resource into this
+# Application's destination namespace (app-1-qa), which the
+# makeway-apps ApplicationSet sets from the env directory path.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - namespace.yaml
+  - ../../base
+  - ../../apps/app-1-service-1
+patches:
+  - path: app-1-service-1-patch.yaml
