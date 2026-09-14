@@ -18,5 +18,7 @@ resources:
   - namespace.yaml
   - ../../base
   - ../../apps/app-1-service-1
+  - ../../apps/node-svc
 patches:
   - path: app-1-service-1-patch.yaml
+  - path: node-svc-patch.yaml
