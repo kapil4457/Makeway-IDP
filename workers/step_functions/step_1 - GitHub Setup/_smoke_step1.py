@@ -867,7 +867,81 @@ try:
 finally:
     m._gh, m._gh_status, m._git_identity_cache = _saved_pub_gh, _saved_pub_gh_status, _saved_identity
 
-# 17. Static contract: the publish flow must sync the branch with main before
+# 17. Env-scoped overlay emission (_argocd_app_files): an app created against
+#     a prod cluster only must get a prod overlay ONLY — the old behavior
+#     emitted every canonical tier, so a prod-only app still grew qa/uat
+#     overlays whose placeholder images some qa ApplicationSet dutifully
+#     deployed (ImagePullBackOff with nothing ever promoted). Envs that fall
+#     out of the app's set but already exist on main (older all-tiers
+#     emission) must be trimmed via delete_paths so their Applications
+#     cascade away on the next update request.
+_saved_env_gh = (m._gh, m._gh_status)
+_saved_env_git_file = m._git_file
+
+_MAIN_OVERLAYS = {"qa", "uat", "prod"}
+
+
+def _fake_git_file(repo, path):
+    """Simulate main: env overlays exist for _MAIN_OVERLAYS, nothing else."""
+    for env in _MAIN_OVERLAYS:
+        if path == f"argocd/apps/app-1/envs/{env}/kustomization.yaml":
+            return f"placeholder kustomization for {env}"
+    return None
+
+
+m._git_file = _fake_git_file
+try:
+    _BASE = {"fast-api": {"stack": "fast-api", "rows": []}}
+
+    def _env_dirs(files):
+        return sorted(p.split("/")[4] for p in files if "/envs/" in p and p.endswith("namespace.yaml"))
+
+    # (a) prod-only app: exactly the prod overlay.
+    files, deletes = m._argocd_app_files("app-1", _BASE, app_envs=["prod"])
+    check("env scoping: prod-only app emits only the prod overlay",
+          _env_dirs(files) == ["prod"], str(_env_dirs(files)))
+    check("env scoping: no qa/uat files emitted at all",
+          not any("/envs/qa/" in p or "/envs/uat/" in p for p in files),
+          str(sorted(files)))
+
+    # (b) stale overlays on main are trimmed in the same push.
+    check("env scoping: stale qa/uat overlays on main get delete prefixes",
+          "argocd/apps/app-1/envs/qa/" in deletes
+          and "argocd/apps/app-1/envs/uat/" in deletes
+          and "argocd/apps/app-1/envs/prod/" not in deletes,
+          str(deletes))
+
+    # (c) fresh app (nothing on main): no deletes for the un-emitted tiers.
+    m._git_file = lambda repo, path: None
+    files, deletes = m._argocd_app_files("app-2", _BASE, app_envs=["prod"])
+    check("env scoping: fresh app emits no deletes for never-emitted tiers",
+          deletes == [], str(deletes))
+
+    # (d) app_envs=None keeps the historical all-tiers behavior (tests, and
+    #     any caller that cannot resolve the app's envs).
+    files, _ = m._argocd_app_files("app-3", _BASE, app_envs=None)
+    check("env scoping: app_envs None emits all canonical tiers",
+          _env_dirs(files) == ["prod", "qa", "uat"], str(_env_dirs(files)))
+
+    # (e) non-canonical envs only: fall back to all tiers with a warning —
+    #     never silently strip an app's whole GitOps in one push.
+    _log_capture.clear()
+    files, deletes = m._argocd_app_files("app-4", _BASE, app_envs=["dev"])
+    check("env scoping: non-canonical env falls back to all tiers",
+          _env_dirs(files) == ["prod", "qa", "uat"], str(_env_dirs(files)))
+    check("env scoping: fallback logs a warning",
+          any("match no canonical tier" in r.getMessage() for r in _log_capture),
+          str([r.getMessage() for r in _log_capture]))
+
+    # (f) mixed canonical + non-canonical: canonical wins, non-canonical ignored.
+    files, deletes = m._argocd_app_files("app-5", _BASE, app_envs=["prod", "dev"])
+    check("env scoping: mixed envs emit only the canonical ones",
+          _env_dirs(files) == ["prod"], str(_env_dirs(files)))
+finally:
+    m._gh, m._gh_status = _saved_env_gh
+    m._git_file = _saved_env_git_file
+
+# 18. Static contract: the publish flow must sync the branch with main before
 #     pushing — a revert to the old create-only ensure re-opens the
 #     empty-teardown-PR regression (PR #2: merged, removed nothing).
 _source = re.sub(r"(?m)^\s*#.*$", "", H.read_text(encoding="utf-8"))

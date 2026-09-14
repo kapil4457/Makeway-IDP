@@ -790,12 +790,25 @@ def _argocd_app_files(
     base_services: dict,
     removed_bases_by_env: dict[str, set[str]] | None = None,
     removed_slugs_by_env: dict[str, set[str]] | None = None,
+    app_envs: list[str] | None = None,
 ) -> tuple[dict[str, str], list[str]]:
     """Build the argocd/apps/<appName>/ tree (base/apps/envs layout).
 
-    Envs come from the canonical ``GITOPS_ENVIRONMENTS`` (qa/uat/prod), not
-    the control-plane cluster list — every app gets one overlay per tier, and
-    each is maintained by a specific branch in the service's CI.
+    Overlays are emitted ONLY for the environments the app actually targets
+    (``app_envs`` — the control plane derives them from the distinct
+    ``cluster.environment`` across the request's services), intersected with
+    the canonical ``GITOPS_ENVIRONMENTS`` tiers. Each tier is maintained by a
+    specific branch in the service's CI; an env the app never had gets no
+    overlay, so its cluster's ApplicationSet never instantiates an Application
+    for it. ``app_envs`` None/empty keeps the historical all-tiers behavior
+    (e.g. tests); envs outside the canonical set are ignored, and an app
+    whose envs match no canonical tier falls back to all tiers with a
+    warning rather than silently stripping its GitOps.
+
+    Envs that fall OUT of the app's set but whose overlay already exists on
+    main (an older all-tiers emission) are trimmed via ``delete_paths`` —
+    dropping the overlay deletes the Application and ArgoCD cascades the
+    namespace away.
 
     Removal support (update flow): ``removed_bases_by_env`` names the bases an
     update drops from a specific environment — they lose that env's overlay
@@ -813,6 +826,20 @@ def _argocd_app_files(
     templates = _collect_template_files(GITOPS_TEMPLATES_DIR)
     files: dict[str, str] = {}
     delete_paths: list[str] = []
+
+    # Which tiers this app actually gets — canonical order, deduped. An app
+    # whose envs match no canonical tier (cluster rows with a non-canonical
+    # environment) keeps the historical all-tiers emission rather than
+    # stripping every overlay in one push.
+    env_set = {e for e in (app_envs or []) if e in GITOPS_ENVIRONMENTS}
+    if env_set:
+        emit_envs = [env for env in GITOPS_ENVIRONMENTS if env in env_set]
+    else:
+        logger.warning(
+            "app %s: environments %s match no canonical tier %s — emitting all tiers",
+            app_name, app_envs, GITOPS_ENVIRONMENTS,
+        )
+        emit_envs = list(GITOPS_ENVIRONMENTS)
 
     files[prefix + "README.md"] = _render(templates["README.md"], APP_NAME=app_name)
 
@@ -855,8 +882,9 @@ def _argocd_app_files(
         )
 
     # envs/<env>/ — overlay: this env's own Namespace + the app's shared
-    # base (netpols) + every service base, then patch each service's image tag.
-    for env in GITOPS_ENVIRONMENTS:
+    # base (netpols) + every service base, then patch each service's image
+    # tag. Only the app's own tiers — never tiers it wasn't created with.
+    for env in emit_envs:
         # Bases this update removes from THIS env keep their shared apps/<base>/
         # folder (other envs may still deploy them) but lose this env's
         # references. An env left with no bases loses its whole overlay —
@@ -909,6 +937,18 @@ def _argocd_app_files(
                 ENV=env,
                 IMAGE=_render(PLACEHOLDER_IMAGE, SERVICE_NAME=base),
             )
+
+    # Tiers the app doesn't have but whose overlay already exists on main (an
+    # older all-tiers emission) are trimmed in the same push. The probe is the
+    # env kustomization — every emitted overlay carries one — and the tree
+    # builder expands the prefix against the current tree, so a tier with no
+    # existing overlay is a no-op delete.
+    for env in GITOPS_ENVIRONMENTS:
+        if env in env_set:
+            continue
+        if _git_file(MAKEWAY_PLATFORM_REPO, f"{prefix}envs/{env}/kustomization.yaml"):
+            logger.info("app %s: trimming stale %s overlay (not one of its envs)", app_name, env)
+            delete_paths.append(prefix + f"envs/{env}/")
 
     # Removed items' files go in the same push as the regenerated overlays.
     for env, bases in removed_bases_by_env.items():
@@ -1239,12 +1279,14 @@ def handler(event, context):
         )
 
         # 2. GitOps: argocd/apps/<appName>/ inside the Makeway platform repo.
-        #    Envs are the canonical qa/uat/prod tiers (no dev).
+        #    Overlays only for the envs the app actually targets (its clusters'
+        #    environments) — a prod-only app never emits qa/uat overlays.
         gitops_files, gitops_deletes = _argocd_app_files(
             app_name,
             base_services,
             removed_bases_by_env=removed_bases_by_env,
             removed_slugs_by_env=removed_slugs_by_env,
+            app_envs=environments,
         )
         for base in sorted(fully_removed):
             gitops_deletes.append(f"argocd/apps/{app_name}/apps/{base}/")
