@@ -18,5 +18,7 @@ resources:
   - namespace.yaml
   - ../../base
   - ../../apps/fast-api
+  - ../../apps/spring-boot
 patches:
   - path: fast-api-patch.yaml
+  - path: spring-boot-patch.yaml
