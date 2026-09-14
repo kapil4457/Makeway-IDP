@@ -160,8 +160,10 @@ Makeway/
 │                               worker Lambdas + state machine)
 │
 ├── docs/
-│   ├── design/                 Database, deployment model, gitops/CI pipeline, AWS service accounts
-│   └── diagrams/               Flow diagrams (drawio / svg)
+│   ├── design/                 App flows, database, deployment model, gitops/CI pipeline,
+│   │                           AWS service accounts
+│   ├── diagrams/               Flow diagrams (drawio)
+│   └── README.md               Documentation index (all design docs + component guides)
 └── .github/workflows/          OIDC Terraform pipeline + control-plane CI/CD
 ```
 
@@ -296,13 +298,14 @@ kubectl apply -n external-secrets -f aws-credentials.yaml   # bootstrap creds, g
 kubectl apply -k argocd/clusters/<env>
 ```
 
-Then register the cluster (endpoint + `makeway-worker` token) in the control plane with `POST /cluster/register` (see the [Step-2 README](workers/step_functions/step_2 - Infra Provisioning/README.md)).
+Then register the cluster (endpoint + `makeway-worker` token) in the control plane with `POST /cluster/register` (see the [Step-2 README](workers/step_functions/step_2%20-%20Infra%20Provisioning/README.md)).
 
 ### 2. Control plane
 
 ```bash
 cd app/control-plane
-uv run uvicorn main:app --reload      # DATABASE_URL from .env
+. .venv/Scripts/activate              # Windows (Linux/macOS: source .venv/bin/activate)
+uvicorn main:app --reload             # DATABASE_URL from .env
 ```
 
 Bootstrap a team and users with the operational scripts (see `app/control-plane/scripts/README.md`):
@@ -432,7 +435,7 @@ localtunnel endpoint (`https://<subdomain>.loca.lt` in front of
 `127.0.0.1:6443`) — these are now the **fallback/default cluster** (used when a
 registered cluster row has no token, and by the health reporter); per-env
 endpoint/token/CA are registered per cluster in the control plane — see the
-[Step-2 README](workers/step_functions/step_2 - Infra Provisioning/README.md).
+[Step-2 README](workers/step_functions/step_2%20-%20Infra%20Provisioning/README.md).
 Every other Terraform input keeps its tfvars default — local `terraform.tfvars`
 is still the override if you ever apply from a machine.
 
@@ -460,6 +463,7 @@ is still the override if you ever apply from a machine.
 |---|---|---|---|---|
 | `GITHUB_OWNER` | top of handler | GitHub owner for app repos + platform repo | module Lambda env (var default) | — |
 | `GITHUB_TOKEN_SECRET_ID` | top of handler | Secrets Manager secret holding the PAT | module Lambda env | `makeway/github-pat` |
+| `APP_REPO_CI_SECRET_ID` | top of handler | Secrets Manager secret holding the app-repo CI credentials (Docker Hub + GitOps PAT — see [GitOps & CI Pipeline](docs/design/GitOps-and-CI-Pipeline.md)); empty disables injection | module Lambda env | — |
 | `CONTROL_PLANE_URL` | top of handler | Internal API base URL | derived in Terraform — `local.worker_control_plane_url` (Cloud Map, in-VPC) | — |
 | `INTERNAL_API_KEY` | top of handler | Worker → control-plane shared key | module `var.internal_api_key` (auto-gen) | — |
 | `MAKEWAY_PLATFORM_REPO` | top of handler | Platform repo name | module env | `Makeway-IDP` |
@@ -475,8 +479,8 @@ is still the override if you ever apply from a machine.
 | `CONTROL_PLANE_URL` / `INTERNAL_API_KEY` | top of handler | same as Step 1 | module env | — |
 | `GITHUB_OWNER` / `GITHUB_TOKEN_SECRET_ID` / `MAKEWAY_PLATFORM_REPO` | top of handler | same as Step 1 | module env | `Makeway-IDP` |
 | `SECRETS_PREFIX` | `step_2/handler.py:78` | Secrets Manager name prefix | module `var.secrets_prefix` | `makeway` |
-| `RDS_PUBLICLY_ACCESSIBLE` | `step_2/handler.py:82` | Expose RDS publicly (local cluster) | module `var.rds_publicly_accessible` | `true` |
-| `RDS_INGRESS_CIDR` | `step_2/handler.py:83` | 5432 ingress CIDR | module `var.rds_ingress_cidr` | `0.0.0.0/0` |
+| `RDS_PUBLICLY_ACCESSIBLE` | `step_2/handler.py:85` | Expose RDS publicly (local cluster) | module `var.rds_publicly_accessible` | `true` |
+| `RDS_INGRESS_CIDR` | `step_2/handler.py:86` | 5432 ingress CIDR | module `var.rds_ingress_cidr` | empty → platform VPC CIDR (SSM) |
 | `DEFAULT_REGION` / `AWS_REGION` | `step_2/handler.py:58-59` | AWS region for boto3 clients | module env | `ap-south-1` |
 
 #### SQS-consumer Lambda
@@ -490,14 +494,23 @@ is still the override if you ever apply from a machine.
 
 ## Documentation map
 
+The full index — every design doc and component guide, with a suggested reading
+order — lives in **[docs/README.md](docs/README.md)**.
+
 | Doc | What's in it |
 |---|---|
+| [docs/design/App-Flows.md](docs/design/App-Flows.md) | Every flow walked end to end, zero knowledge assumed: creation, update, delete, the Crossplane and ArgoCD loops, the secret supply chain, cluster bootstrap |
 | [docs/design/Database.md](docs/design/Database.md) | Full schema, relationships, write-pattern |
 | [docs/design/Deployment-Model.md](docs/design/Deployment-Model.md) | Why platform infra is push and user apps are pull |
 | [docs/design/GitOps-and-CI-Pipeline.md](docs/design/GitOps-and-CI-Pipeline.md) | App delivery chain: Step-1 gitops → CI → ArgoCD, env-scoped overlays, cluster identity, ESO bootstrap + troubleshooting |
 | [docs/design/AWS-Service-Accounts.md](docs/design/AWS-Service-Accounts.md) | IAM service-account registry & least-privilege rules |
+| [app/control-plane/README.md](app/control-plane/README.md) | The control plane: API surface, running it locally, structure map |
+| [app/control-plane/scripts/README.md](app/control-plane/scripts/README.md) | Operational CLIs for teams and users |
+| [app/control-plane/migrations/README.md](app/control-plane/migrations/README.md) | Alembic workflow and command reference |
+| [app/frontend/README.md](app/frontend/README.md) | The console: pages, API wiring, local dev, deployment |
+| [workers/step_functions/step_2 - Infra Provisioning/README.md](workers/step_functions/step_2%20-%20Infra%20Provisioning/README.md) | Cluster connectivity: tunnels, worker RBAC, cluster registration |
 | [crossplane/README.md](crossplane/README.md) | How Crossplane expands capabilities into AWS resources |
 | [argocd/external-secrets/README.md](argocd/external-secrets/README.md) | The ESO secret-delivery bootstrap |
 | [terraform/BOOTSTRAP.md](terraform/BOOTSTRAP.md) | First-time AWS account bootstrap |
 | [terraform/README.md](terraform/README.md) | The Terraform layout and state model |
-| [app/control-plane/scripts/README.md](app/control-plane/scripts/README.md) | Operational CLIs for teams and users |
+| [localTunnel/README.md](localTunnel/README.md) | Command-first runbook for exposing a local cluster over a tunnel |

@@ -1,8 +1,10 @@
 # Step 2 — Infra Provisioning (Crossplane worker)
 
+> [Documentation index](../../../docs/README.md) › Components › Step-2 worker
+
 The Step-2 Lambda provisions the app's infrastructure by upserting **Crossplane XR instances** into the Kubernetes cluster of each requested **environment** (`{app}-{env}` namespace), polling them until `Ready+Synced`, then extracting the connection Secrets into AWS Secrets Manager and committing ExternalSecrets into gitops.
 
-It reaches each cluster over **HTTPS through a tunnel** (localtunnel is the documented dev option — see [localTunnel/README.md](../../localTunnel/README.md)) to the **kube-apiserver** — it does not need a VPN or a VPC peering with your machine. The platform is **one cluster per environment** (qa/uat/prod): each cluster runs its own ArgoCD + Crossplane + ESO, is exposed through its own tunnel, and is **registered in the control-plane Cluster registry** with its endpoint, a `makeway-worker` bearer token, and (optionally) its CA bundle. The worker resolves per-capability which cluster to call from the registry — the Lambda env `KUBE_*` values are only the fallback for clusters without a registered token.
+It reaches each cluster over **HTTPS through a tunnel** (localtunnel is the documented dev option — see [localTunnel/README.md](../../../localTunnel/README.md)) to the **kube-apiserver** — it does not need a VPN or a VPC peering with your machine. The platform is **one cluster per environment** (qa/uat/prod): each cluster runs its own ArgoCD + Crossplane + ESO, is exposed through its own tunnel, and is **registered in the control-plane Cluster registry** with its endpoint, a `makeway-worker` bearer token, and (optionally) its CA bundle. The worker resolves per-capability which cluster to call from the registry — the Lambda env `KUBE_*` values are only the fallback for clusters without a registered token.
 
 The steps below are a **per-cluster loop** — run 1–3, 5–6 once per environment:
 
@@ -44,7 +46,7 @@ Three pieces must match **per cluster**:
 | Registered `kubeToken` | A long-lived bearer token for that cluster's `makeway-worker` ServiceAccount (see step 2) | `POST /cluster/register` (step 4) |
 | Registered `kubeCaCert` | Leave **empty** for the localtunnel dev setup (see step 3) | `POST /cluster/register` (step 4) |
 
-The Lambda env `KUBE_API_ENDPOINT`/`KUBE_TOKEN`/`KUBE_CA_CERT` are now only the **fallback** (used when a cluster row has no token; also used by the health reporter's sweep) — see step 5.
+The Lambda env `KUBE_API_ENDPOINT`/`KUBE_TOKEN`/`KUBE_CA_CERT` are now only the **fallback** (used when a cluster row has no token; also the health reporter's fallback when no clusters are registered) — see step 5.
 
 ---
 
@@ -54,7 +56,7 @@ The kube-apiserver by default **binds to `127.0.0.1:6443`** (e.g. `k3d cluster c
 
 > **What kind of tunnel is this?** localtunnel **terminates TLS at the loca.lt edge** with a valid Let's Encrypt certificate for `*.loca.lt`, then re-encrypts to your local apiserver (`--local-https`); `--allow-invalid-cert` skips validating kind's self-signed cert on *that* hop only. The Lambda sees the loca.lt certificate — which is why the endpoint is a plain HTTPS URL with no port suffix. (The old pinggy setup was raw TCP and presented the apiserver's own cert instead.)
 
-**Start the tunnel** (see [localTunnel/README.md](../../localTunnel/README.md) for the full runbook):
+**Start the tunnel** (see [localTunnel/README.md](../../../localTunnel/README.md) for the full runbook):
 
 ```bash
 npx localtunnel --port 6443 --local-https --allow-invalid-cert --subdomain makeway-kube-prod
@@ -94,6 +96,7 @@ The Step-2 Lambda authenticates to the kube-apiserver with a **bearer token for 
 
 - `get`/`create`/`patch` on **XR instances** (`makeway.io` group) in **all `{app}-{env}` namespaces**,
 - `get` on **Secrets** and `create`/`patch` on the **`{claim}-creds` Secrets**,
+- read-only `get`/`list`/`watch` on **ArgoCD Applications** (the health reporter mirrors the live inventory),
 - event/lease ops the API server requires for normal request handling (`events` in the SA's namespace).
 
 Apply:
@@ -114,6 +117,11 @@ rules:
   - apiGroups: ["makeway.io"]
     resources: ["*"]
     verbs: ["get", "list", "watch", "create", "patch", "delete"]
+  # ArgoCD Applications — health reporter mirrors the live inventory (read-only:
+  # ArgoCD itself owns these objects, the worker never writes them).
+  - apiGroups: ["argoproj.io"]
+    resources: ["applications"]
+    verbs: ["get", "list", "watch"]
   - apiGroups: [""]
     resources: ["secrets"]
     verbs: ["get", "list", "create", "patch", "delete"]
@@ -229,7 +237,7 @@ curl -H "X-Internal-API-Key: <INTERNAL_API_KEY>" \
 
 ## 5. Collect the values for Terraform (fallback cluster only)
 
-The `terraform.tfvars` kube values no longer drive per-env routing — they feed the worker's **fallback** (`KUBE_API_ENDPOINT`/`KUBE_TOKEN`/`KUBE_CA_CERT`), used only when a registered cluster row has no token, and they feed the health reporter's single-cluster sweep. They still must be non-empty to apply the Terraform (a default cluster):
+The `terraform.tfvars` kube values no longer drive per-env routing — they feed the worker's **fallback** (`KUBE_API_ENDPOINT`/`KUBE_TOKEN`/`KUBE_CA_CERT`), used only when a registered cluster row has no token, and they are the health reporter's fallback when no clusters are registered in the control plane (the reporter sweeps every cluster it finds via `GET /internal/clusters` first). They still must be non-empty to apply the Terraform (a default cluster):
 
 | `terraform.tfvars` var | Value | How to get it |
 |---|---|---|

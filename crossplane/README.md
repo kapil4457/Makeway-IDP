@@ -1,5 +1,7 @@
 # Makeway Crossplane configuration
 
+> [Documentation index](../docs/README.md) › Components › Crossplane
+
 Crossplane turns the capability catalog into a Kubernetes API. A developer's
 `rel_database` / `storage` / `messaging` capability becomes an **XR instance**
 (namespaced composite resource — Crossplane v2 removed Claims) in the app's own

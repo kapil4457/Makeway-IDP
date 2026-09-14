@@ -239,6 +239,16 @@ resource "aws_ecs_service" "this" {
   # handles in-flight requests.
   force_delete = true
 
+  # awsvpc tasks each need their own ENI on the container instance, and a
+  # t3-class instance hosts very few. Default rolling updates (max 200%) start
+  # the replacement before stopping the old task, which needs a spare ENI slot
+  # that does not exist here — the deployment wedges forever on
+  # TaskFailedToStart: RESOURCE::ENI while the old task keeps serving. Roll
+  # one task at a time instead: stop old, then start new — a few seconds of
+  # unavailability per deploy, and no spare capacity required.
+  deployment_minimum_healthy_percent = 0
+  deployment_maximum_percent         = 100
+
   capacity_provider_strategy {
     capacity_provider = aws_ecs_capacity_provider.this.name
     weight            = 1
@@ -343,6 +353,11 @@ resource "aws_ecs_service" "ui" {
   task_definition = aws_ecs_task_definition.ui[count.index].arn
   desired_count   = var.ui_desired_count
   force_delete    = true
+
+  # Same stop-then-start rationale as the control-plane service above: the
+  # cluster has no spare ENI slot for an overlapping rolling update.
+  deployment_minimum_healthy_percent = 0
+  deployment_maximum_percent         = 100
 
   capacity_provider_strategy {
     capacity_provider = aws_ecs_capacity_provider.this.name

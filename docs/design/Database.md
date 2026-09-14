@@ -84,13 +84,15 @@ modifiedAt / modifiedBy
 
 ## Cluster
 
-Reference data for the fixed EKS clusters.
+The registered platform clusters — one per environment (qa/uat/prod).
 
 ```
 clusterId (PK)
 clusterName (unique)
 kubeApiEndpoint
 environment                 -- "qa" | "uat" | "prod"
+kubeToken (nullable)        -- makeway-worker bearer token for this cluster
+kubeCaCert (nullable)       -- base64 apiserver CA bundle; empty = TLS verification off
 createdAt / createdBy
 modifiedAt / modifiedBy
 ```
@@ -98,7 +100,10 @@ modifiedAt / modifiedBy
 **Why:** There is no separate `Environment` table. An environment is a
 per-request concept (`AppConfig.env_config`) that resolves to the Cluster
 registered for that environment via `Cluster.environment`. Services and
-Namespaces carry the `clusterId` that identifies the physical EKS cluster.
+Namespaces carry the `clusterId` that identifies the physical cluster.
+`kubeToken`/`kubeCaCert` are the per-cluster worker credentials the Step-2
+Lambda and health reporter read — when a row has none, the worker falls back
+to its Lambda env `KUBE_*` values.
 
 ---
 

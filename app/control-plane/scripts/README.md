@@ -1,5 +1,7 @@
 # Makeway Control-Plane Scripts
 
+> [Documentation index](../../../docs/README.md) › Components › Control plane › Operational CLIs
+
 Operational CLI tools for bootstrapping and managing Makeway users, teams and
 team memberships. Every script is a thin argument-parsing wrapper; all business
 logic lives in [`scripts/lib/`](lib/) so the scripts never duplicate each other.

@@ -1,5 +1,7 @@
 # Terraform
 
+> [Documentation index](../docs/README.md) › Components › Terraform
+
 Makeway keeps **one centralized Terraform repository** for the platform's own
 infrastructure. There are three distinct layers, each with its own state:
 

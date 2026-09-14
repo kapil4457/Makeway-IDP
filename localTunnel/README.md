@@ -1,5 +1,7 @@
 # localTunnel — exposing the local kind cluster to Makeway
 
+> [Documentation index](../docs/README.md) › Components › Cluster tunnel (dev)
+
 The AWS workers (Step-2 Crossplane worker, ArgoCD health reporter) reach the
 kube-apiserver over **HTTPS through a public tunnel**. This folder holds the
 dev-seam pieces for the **localtunnel** (`loca.lt`) setup in front of the

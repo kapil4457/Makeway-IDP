@@ -7,7 +7,7 @@ Why the platform's own infrastructure is deployed one way, and the apps it gener
 There are two deployment concerns in this repo:
 
 1. **Our platform** — VPC, EKS, RDS, IAM, SQS, the step functions, the control plane itself.
-2. **User apps** — services Makeway generates and manages for teams, deployed onto EKS.
+2. **User apps** — services Makeway generates and manages for teams, deployed onto the platform's Kubernetes clusters (one per environment — running locally today, EKS when the clusters move).
 
 Problem 1 is changed by a handful of people a few times a month, and can take the whole platform down if it goes wrong. Problem 2 is changed by every team using the platform, constantly, and is exactly the thing we promised to make boring for them.
 
@@ -23,7 +23,7 @@ flowchart TB
     end
 
     subgraph provisioning["App infrastructure — CROSSPLANE"]
-        V1[Step-2 worker applies Claims<br/>into app-&lt;env&gt; namespaces] --> V2[Crossplane Composition] --> V3[AWS resources]
+        V1[Step-2 worker applies XR instances<br/>into app-&lt;env&gt; namespaces] --> V2[Crossplane Composition] --> V3[AWS resources]
         V1 --> V4[(connection Secrets)] --> V5[ESO materializes K8s Secrets]
     end
 
@@ -53,14 +53,14 @@ Generated apps run the loop:
 merge to a promoting branch (feature/* → qa, release/* → uat, main → prod)
   → CI builds + pushes that env's image
   → CI bumps that env's image tag in the platform repo
-  → ArgoCD detects → syncs to EKS
+  → ArgoCD detects → syncs to that environment's cluster
 ```
 
 **Why pull:**
 
 - **No team's CI should ever hold cluster access.** The gitops repo is the write path. A workflow in a service repo can commit a YAML change; it cannot `kubectl` anything, even by accident. That boundary is the whole security model for hundreds of apps.
 - **One screen shows everything.** ArgoCD lists every app, every environment, with sync state. For a platform where apps are created by other teams, that's the operational surface the platform team actually runs on.
-- **A new app is just a directory.** The ApplicationSet's git generator discovers `argocd/apps/*/envs/*`. Step 1 of the state machine lands the configs as a PR and ArgoCD picks the app up with zero wiring. No kubectl apply, no register-the-app step, nothing to forget.
+- **A new app is just a directory.** Each environment cluster's ApplicationSet discovers `argocd/apps/*/envs/<env>` on the repo. Step 1 of the state machine lands the configs as a PR and the right cluster's ArgoCD picks the app up with zero wiring. No kubectl apply, no register-the-app step, nothing to forget.
 - **Drift is reverted, not reported.** `selfHeal: true`. The incident hotfix someone makes with `kubectl edit` disappears within minutes and git stays the truth. For a platform whose pitch is "declared state is real," this is the mechanism that keeps the pitch honest.
 - **Rollback is a revert.** Bad tag, `git revert` on the bump commit, push, ArgoCD rolls it. The platform team does not get paged into every team's bad deploy.
 - **Onboarding gate flicked on by GitHub settings.** Step 1 auto-merges its PR today only because branch protection isn't enabled. The moment required reviews turn on, new apps get eyes before they land — a repo setting, not a code change.
@@ -102,5 +102,5 @@ Roughly in the order this repo will actually need them.
 2. **Per-app gitops repos, but only when contention bites.** When many CI runs are racing to push tag bumps into one main, split configs per app and add the repo URLs to the ApplicationSet generators. The model handles multiple repos already. Not before.
 3. **Argo Rollouts.** Canary-shaped delivery for user apps. Fits the current model cleanly (a Rollout CRD next to the Deployment). Worth having the day a team asks for safer deploys rather than after one bites them.
 4. **Atlantis for platform infra.** PR comments with `terraform plan`, apply on merge. Still push, still the same gate, just better review ergonomics than the workflow console. Only worth it once more than a couple of people touch Terraform regularly.
-5. **A real prod cluster.** Today all environments share one EKS cluster. When prod separates, the ApplicationSet gains a per-env destination server and nothing else in the model changes.
+5. **Managed EKS for the environment clusters.** The one-cluster-per-environment model is already in place — today the clusters run locally behind tunnels. Moving them to EKS swaps the static-credential auth (Crossplane ProviderConfig, ESO ClusterSecretStore) for IRSA and drops the tunnel seam; nothing in the delivery model changes.
 6. **Image Updater as a planned off-ramp.** If the CI-commit approach proves noisy, swapping annotations on and removing the sed step is a narrow change. Kept as an exit, not a plan.

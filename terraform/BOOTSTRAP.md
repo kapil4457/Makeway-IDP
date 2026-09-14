@@ -1,5 +1,7 @@
 # Terraform Bootstrap (first-time only)
 
+> [Documentation index](../docs/README.md) › Components › Terraform › First-time bootstrap
+
 Bootstrap the platform infra from an empty AWS account. Everything after step 5 runs via GitHub Actions (OIDC — no static keys).
 
 ## Prerequisites

@@ -1,5 +1,7 @@
 # External Secrets bootstrap
 
+> [Documentation index](../../docs/README.md) › Components › External Secrets Operator
+
 The app-facing secret-delivery layer for the Makeway platform. Credentials
 Crossplane writes into each Claim's connection Secret are mirrored into AWS
 Secrets Manager by the Step-2 worker, which also commits an
