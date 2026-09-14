@@ -160,7 +160,7 @@ Makeway/
 │                               worker Lambdas + state machine)
 │
 ├── docs/
-│   ├── design/                 Database, deployment model, AWS service accounts
+│   ├── design/                 Database, deployment model, gitops/CI pipeline, AWS service accounts
 │   └── diagrams/               Flow diagrams (drawio / svg)
 └── .github/workflows/          OIDC Terraform pipeline + control-plane CI/CD
 ```
@@ -494,6 +494,7 @@ is still the override if you ever apply from a machine.
 |---|---|
 | [docs/design/Database.md](docs/design/Database.md) | Full schema, relationships, write-pattern |
 | [docs/design/Deployment-Model.md](docs/design/Deployment-Model.md) | Why platform infra is push and user apps are pull |
+| [docs/design/GitOps-and-CI-Pipeline.md](docs/design/GitOps-and-CI-Pipeline.md) | App delivery chain: Step-1 gitops → CI → ArgoCD, env-scoped overlays, cluster identity, ESO bootstrap + troubleshooting |
 | [docs/design/AWS-Service-Accounts.md](docs/design/AWS-Service-Accounts.md) | IAM service-account registry & least-privilege rules |
 | [crossplane/README.md](crossplane/README.md) | How Crossplane expands capabilities into AWS resources |
 | [argocd/external-secrets/README.md](argocd/external-secrets/README.md) | The ESO secret-delivery bootstrap |
