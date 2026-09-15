@@ -20,4 +20,5 @@ resources:
   - ../../apps/payment-service
   - external-secrets/payment-db-external-secret.yaml
 patches:
+  - path: inject/payment-db-env.yaml
   - path: payment-service-patch.yaml
