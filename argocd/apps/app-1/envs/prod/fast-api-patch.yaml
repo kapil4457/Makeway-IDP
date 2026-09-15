@@ -1,0 +1,14 @@
+# Image patch for fast-api in the prod environment.
+# The service's CI workflow rewrites the image line below when the branch that
+# promotes prod merges (feature/* -> qa, release/* -> uat, main -> prod);
+# ArgoCD rolls out the change.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fast-api
+spec:
+  template:
+    spec:
+      containers:
+        - name: fast-api
+          image: kapil4457/makeway-apps:fast-api-9e079577d62319ac69c97859910470bd60309c0f
