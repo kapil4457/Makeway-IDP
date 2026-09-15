@@ -11,4 +11,4 @@ spec:
     spec:
       containers:
         - name: python-service
-          image: makeway-placeholder/python-service:pending-first-build
+          image: kapil4457/makeway-apps:python-service-27600d8211c9d276c9fae9788f1f957aabc41d7c
