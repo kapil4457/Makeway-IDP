@@ -18,5 +18,6 @@ resources:
   - namespace.yaml
   - ../../base
   - ../../apps/payment-service
+  - external-secrets/payment-db-external-secret.yaml
 patches:
   - path: payment-service-patch.yaml
