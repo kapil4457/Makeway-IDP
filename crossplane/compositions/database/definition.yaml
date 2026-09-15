@@ -71,14 +71,15 @@ spec:
                       type: string
                       minLength: 1
                       maxLength: 63
-                      pattern: ^[a-z0-9_]+$
-                      description: "Name of the initial database inside the RDS instance (e.g. orders). Matches DatabaseConfig.name."
+                      pattern: ^[a-z][a-z0-9_]{0,62}$
+                      description: "Name of the initial database inside the RDS instance (e.g. orders). Must start with a lowercase letter, then lowercase letters/digits/underscores. Matches DatabaseConfig.name."
                     masterUsername:
                       type: string
                       minLength: 1
                       maxLength: 63
+                      pattern: ^[A-Za-z][A-Za-z0-9_]{0,62}$
                       default: makeway_admin
-                      description: "Master username for the RDS instance. Defaults to makeway_admin when the capability omits username."
+                      description: "Master username for the RDS instance. RDS CreateDBInstance rules: must start with a letter, then letters/digits/underscores only — hyphens fail with InvalidParameterValue. Defaults to makeway_admin when the capability omits username."
                     capacity:
                       type: integer
                       minimum: 1

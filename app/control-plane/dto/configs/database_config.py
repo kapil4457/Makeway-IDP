@@ -20,24 +20,33 @@ class DatabaseConfig(pydantic.BaseModel):
     name: str = Field(
         ...,
         description=(
-            "Name of the database to provision. SQL-safe identifier: lowercase "
-            "letters, digits, underscores — hyphens are invalid unquoted "
-            "database identifiers and AWS RDS rejects them. Mirrors the "
-            "RelationalDatabase XRD's databaseName pattern."
+            "Name of the database to provision. SQL-safe identifier: must "
+            "start with a lowercase letter, then lowercase letters, digits, "
+            "underscores — hyphens are invalid unquoted database identifiers "
+            "and AWS RDS rejects them, and Postgres identifiers cannot start "
+            "with a digit. Mirrors the RelationalDatabase XRD's databaseName "
+            "pattern."
         ),
         examples=["orders"],
         min_length=1,
         max_length=63,
-        pattern=r"^[a-z0-9_]+$",
+        pattern=r"^[a-z][a-z0-9_]{0,62}$",
     )
     username: Optional[str] = Field(
         default=None,
         description=(
-            "Master username for the database. Must not be an RDS-reserved "
-            "name (admin, administrator, root, rdsadmin). Stored in Vault "
-            "once provisioned; omit to use the platform default."
+            "Master username for the database. RDS CreateDBInstance rules: "
+            "1-63 characters, must start with a letter, then letters/digits/"
+            "underscores only — hyphens fail with InvalidParameterValue "
+            "(rag-service-admin style names are rejected by RDS). Must not "
+            "be an RDS-reserved name (admin, administrator, root, rdsadmin). "
+            "Stored in Vault once provisioned; omit to use the platform "
+            "default."
         ),
         examples=["orders_admin"],
+        min_length=1,
+        max_length=63,
+        pattern=r"^[A-Za-z][A-Za-z0-9_]{0,62}$",
     )
 
     @pydantic.field_validator("username")
