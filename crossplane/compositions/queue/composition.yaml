@@ -109,7 +109,10 @@ spec:
                     - fromFieldPath: spec.parameters.maxReceiveCount
                   strategy: string
                   string:
-                    fmt: '{"deadLetterTargetArn":"%s","maxReceiveCount":%d}'
+                    # %v, not %d: the combine hands the function a float64 and
+                    # Go's %d cannot render it (emits %!d(float64=3), which SQS
+                    # rejects as an invalid RedrivePolicy JSON map).
+                    fmt: '{"deadLetterTargetArn":"%s","maxReceiveCount":%v}'
                 toFieldPath: spec.forProvider.redrivePolicy
             connectionDetails:
               - type: FromFieldPath
