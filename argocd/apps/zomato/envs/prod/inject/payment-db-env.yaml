@@ -1,12 +1,12 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: payment-service
+  name: python-service
 spec:
   template:
     spec:
       containers:
-        - name: payment-service
+        - name: python-service
           env:
             - name: MAKEWAY_PAYMENT_DB_DATABASE_NAME
               valueFrom:
