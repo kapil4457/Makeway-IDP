@@ -1,0 +1,32 @@
+# Golden-path Deployment for the node_service service.
+# Shared across environments — the envs/<env>/ overrides patch the image tag per
+# environment. Makeway CI rewrites those patches after every build on main.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: node_service
+  labels:
+    app: node_service
+    managed-by: makeway
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: node_service
+  template:
+    metadata:
+      labels:
+        app: node_service
+    spec:
+      containers:
+        - name: node_service
+          image: makeway-placeholder/node_service:pending-first-build
+          ports:
+            - containerPort: 3000
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi

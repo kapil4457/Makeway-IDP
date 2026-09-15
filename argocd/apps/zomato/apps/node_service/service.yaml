@@ -1,0 +1,16 @@
+# Service for the node_service golden-path service.
+apiVersion: v1
+kind: Service
+metadata:
+  name: node_service
+  labels:
+    app: node_service
+    managed-by: makeway
+spec:
+  selector:
+    app: node_service
+  ports:
+    - name: http
+      port: 80
+      targetPort: 3000
+      protocol: TCP
