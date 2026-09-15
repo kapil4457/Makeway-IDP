@@ -1,0 +1,32 @@
+# Golden-path Deployment for the spring-boot service.
+# Shared across environments — the envs/<env>/ overrides patch the image tag per
+# environment. Makeway CI rewrites those patches after every build on main.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: spring-boot
+  labels:
+    app: spring-boot
+    managed-by: makeway
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: spring-boot
+  template:
+    metadata:
+      labels:
+        app: spring-boot
+    spec:
+      containers:
+        - name: spring-boot
+          image: makeway-placeholder/spring-boot:pending-first-build
+          ports:
+            - containerPort: 8000
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
