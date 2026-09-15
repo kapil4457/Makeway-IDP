@@ -1,0 +1,14 @@
+# Image patch for node_service in the prod environment.
+# The service's CI workflow rewrites the image line below when the branch that
+# promotes prod merges (feature/* -> qa, release/* -> uat, main -> prod);
+# ArgoCD rolls out the change.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: node_service
+spec:
+  template:
+    spec:
+      containers:
+        - name: node_service
+          image: kapil4457/makeway-apps:node_service-734f438d2229140067a33029616713509f72f71a
