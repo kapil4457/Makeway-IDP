@@ -1,0 +1,16 @@
+# Service for the payment-service golden-path service.
+apiVersion: v1
+kind: Service
+metadata:
+  name: payment-service
+  labels:
+    app: payment-service
+    managed-by: makeway
+spec:
+  selector:
+    app: payment-service
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8000
+      protocol: TCP
