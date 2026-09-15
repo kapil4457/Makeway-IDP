@@ -11,4 +11,4 @@ spec:
     spec:
       containers:
         - name: node_service
-          image: makeway-placeholder/node_service:pending-first-build
+          image: kapil4457/makeway-apps:node_service-734f438d2229140067a33029616713509f72f71a
