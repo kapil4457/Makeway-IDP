@@ -20,7 +20,9 @@ resources:
   - ../../base
   - ../../apps/payment-service
   - ../../apps/python-service
+  - ../../apps/node_service
 patches:
   - path: inject/payment-db-env.yaml
   - path: payment-service-patch.yaml
   - path: python-service-patch.yaml
+  - path: node_service-patch.yaml
