@@ -171,10 +171,18 @@ data "aws_iam_policy_document" "step2_permissions" {
     sid = "MirrorCapabilitySecrets"
     actions = [
       "secretsmanager:CreateSecret",
+      "secretsmanager:DeleteSecret",
       "secretsmanager:DescribeSecret",
       "secretsmanager:GetSecretValue",
+      "secretsmanager:ListSecrets",
       "secretsmanager:PutSecretValue",
+      "secretsmanager:TagResource",
     ]
+    # TagResource is evaluated as part of CreateSecret whenever the call
+    # carries Tags — without it the whole CreateSecret is rejected with
+    # AccessDeniedException (zomato/prod rel_database). DeleteSecret and
+    # ListSecrets back the pending-deletion cleanup path in the Step-2
+    # extract step.
     # Secret ARNs carry a random 6-char suffix after the name, hence the
     # trailing wildcard. Restricted to the makeway prefix.
     resources = [
