@@ -11,4 +11,4 @@ spec:
     spec:
       containers:
         - name: spring-boot
-          image: makeway-placeholder/spring-boot:pending-first-build
+          image: kapil4457/makeway-apps:spring-boot-223444e506f1cfaaef8658689fb5830f9e479af3
