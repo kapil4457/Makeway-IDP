@@ -11,4 +11,4 @@ spec:
     spec:
       containers:
         - name: fast-api
-          image: makeway-placeholder/fast-api:pending-first-build
+          image: kapil4457/makeway-apps:fast-api-223444e506f1cfaaef8658689fb5830f9e479af3
