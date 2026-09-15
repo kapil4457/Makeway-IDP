@@ -43,17 +43,21 @@ spec:
                     managed-by: makeway
                 providerConfigRef:
                   name: makeway
+                  kind: ClusterProviderConfig
             patches:
               - type: FromCompositeFieldPath
                 fromFieldPath: spec.parameters.region
                 toFieldPath: spec.forProvider.region
               - type: FromCompositeFieldPath
                 fromFieldPath: spec.parameters.topicName
-                toFieldPath: spec.forProvider.name
+                # The Topic CRD declares no name field — upjet uses the
+                # crossplane.io/external-name annotation as the Terraform
+                # identifier, so the desired topic name goes there.
+                toFieldPath: metadata.annotations[crossplane.io/external-name]
             connectionDetails:
               - type: FromFieldPath
                 name: topicArn
                 fromFieldPath: status.atProvider.arn
               - type: FromFieldPath
                 name: topicName
-                fromFieldPath: spec.forProvider.name
+                fromFieldPath: metadata.annotations[crossplane.io/external-name]

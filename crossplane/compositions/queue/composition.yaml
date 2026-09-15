@@ -47,11 +47,12 @@ spec:
               spec:
                 forProvider:
                   region: ap-south-1
-                  messageRetentionPeriod: 1209600
+                  messageRetentionSeconds: 1209600
                   tags:
                     managed-by: makeway
                 providerConfigRef:
                   name: makeway
+                  kind: ClusterProviderConfig
             patches:
               - type: FromCompositeFieldPath
                 fromFieldPath: spec.parameters.region
@@ -81,11 +82,12 @@ spec:
                 forProvider:
                   region: ap-south-1
                   visibilityTimeoutSeconds: 60
-                  messageRetentionPeriod: 345600
+                  messageRetentionSeconds: 345600
                   tags:
                     managed-by: makeway
                 providerConfigRef:
                   name: makeway
+                  kind: ClusterProviderConfig
             patches:
               - type: FromCompositeFieldPath
                 fromFieldPath: spec.parameters.region
@@ -98,7 +100,7 @@ spec:
                 toFieldPath: spec.forProvider.visibilityTimeoutSeconds
               - type: FromCompositeFieldPath
                 fromFieldPath: spec.parameters.messageRetentionSeconds
-                toFieldPath: spec.forProvider.messageRetentionPeriod
+                toFieldPath: spec.forProvider.messageRetentionSeconds
               # redrive policy → DLQ (built from dlqArn + maxReceiveCount)
               - type: CombineFromComposite
                 combine:

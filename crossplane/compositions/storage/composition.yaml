@@ -4,9 +4,9 @@
 #
 # Security: buckets are private by construction — no bucket policy, ACL, or
 # website config is ever composed, access is exclusively through the scoped
-# IAM keys the Step-2 Lambda extracts. `publicAccessBlockConfiguration` pins
-# the AWS PublicAccessBlock on the bucket so a relaxed account-level default
-# can never silently expose one.
+# IAM keys the Step-2 Lambda extracts. A composed BucketPublicAccessBlock MR
+# pins all four PublicAccessBlock flags on every bucket so a relaxed
+# account-level default can never silently expose one.
 #
 # Crossplane v2 pipeline mode: the function-patch-and-transform function turns
 # the XR's parameters into the composed Managed Resources below.
@@ -57,16 +57,9 @@ spec:
               spec:
                 forProvider:
                   region: ap-south-1
-                  # Buckets are private by design — block every public-access
-                  # path at the resource level (the account-level default is
-                  # not something app buckets should depend on).
-                  publicAccessBlockConfiguration:
-                    blockPublicAcls: true
-                    blockPublicPolicy: true
-                    ignorePublicAcls: true
-                    restrictPublicBuckets: true
                 providerConfigRef:
                   name: makeway
+                  kind: ClusterProviderConfig
             patches:
               # The S3 bucket name comes from the Managed Resource's metadata.name,
               # so the patched bucket name must equal the XR's bucketName.
@@ -86,3 +79,29 @@ spec:
               - type: FromFieldPath
                 name: arn
                 fromFieldPath: status.atProvider.arn
+
+          # ---- public access block: pins the bucket private ----------------
+          # This provider version carries PublicAccessBlock on its own MR kind,
+          # not as a Bucket field — so it is composed as a sibling resource that
+          # resolves the bucket via the controller ownerRef (same v2 wiring as
+          # the database composition's security-group selector).
+          - name: publicaccessblock
+            base:
+              apiVersion: s3.aws.m.upbound.io/v1beta1
+              kind: BucketPublicAccessBlock
+              spec:
+                forProvider:
+                  region: ap-south-1
+                  blockPublicAcls: true
+                  blockPublicPolicy: true
+                  ignorePublicAcls: true
+                  restrictPublicBuckets: true
+                  bucketSelector:
+                    matchControllerRef: true
+                providerConfigRef:
+                  name: makeway
+                  kind: ClusterProviderConfig
+            patches:
+              - type: FromCompositeFieldPath
+                fromFieldPath: spec.parameters.region
+                toFieldPath: spec.forProvider.region
