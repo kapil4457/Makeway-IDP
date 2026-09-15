@@ -51,8 +51,11 @@ resource "aws_route_table" "private" {
   vpc_id = aws_vpc.main.id
 
   route {
+    # Private subnets outnumber NAT gateways on purpose (a third NAT is ~$33/mo
+    # for an idle AZ) — extra private subnets wrap around to share one, e.g.
+    # private[2] routes through nat[0].
     cidr_block     = "0.0.0.0/0"
-    nat_gateway_id = aws_nat_gateway.main[count.index].id
+    nat_gateway_id = aws_nat_gateway.main[count.index % length(aws_nat_gateway.main)].id
   }
 }
 

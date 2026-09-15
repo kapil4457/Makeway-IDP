@@ -23,15 +23,15 @@ variable "vpc_cidr" {
 }
 
 variable "availability_zones" {
-  description = "Availability zones to spread private/public subnets across (2+ required for RDS)."
+  description = "Availability zones to spread private/public subnets across (2+ required for RDS). Private subnets span all three AZs: RDS capacity for burstable classes comes and goes per-AZ, and ap-south-1c is the fallback when 1a/1b are short (InvalidVPCNetworkStateFault)."
   type        = list(string)
-  default     = ["ap-south-1a", "ap-south-1b"]
+  default     = ["ap-south-1a", "ap-south-1b", "ap-south-1c"]
 }
 
 variable "private_subnet_cidrs" {
   description = "CIDR blocks for the private subnets (one per availability zone)."
   type        = list(string)
-  default     = ["10.0.1.0/24", "10.0.2.0/24"]
+  default     = ["10.0.1.0/24", "10.0.2.0/24", "10.0.3.0/24"]
 }
 
 variable "public_subnet_cidrs" {

@@ -170,6 +170,14 @@ spec:
                 providerConfigRef:
                   name: makeway
                   kind: ClusterProviderConfig
+                # Publish the provider's own connection details (incl. the
+                # master password) straight into the XR's connection Secret —
+                # name patched below from the XR's writeConnectionSecretToRef.
+                # In v2 the function has no read source for FromConnectionSecretKey
+                # on this MR, so the provider-side publish is what puts
+                # `password` in the Secret the Step-2 extract reads.
+                writeConnectionSecretToRef:
+                  name: instance-conn
             patches:
               - type: FromCompositeFieldPath
                 fromFieldPath: spec.parameters.region
@@ -186,6 +194,12 @@ spec:
               - type: FromCompositeFieldPath
                 fromFieldPath: spec.parameters.publiclyAccessible
                 toFieldPath: spec.forProvider.publiclyAccessible
+              - type: FromCompositeFieldPath
+                # Publish into the XR's connection Secret (same Secret the
+                # function composes the FromFieldPath keys into) — one Secret,
+                # complete key set for the Step-2 extract.
+                fromFieldPath: spec.writeConnectionSecretToRef.name
+                toFieldPath: spec.writeConnectionSecretToRef.name
               - type: FromCompositeFieldPath
                 fromFieldPath: spec.parameters.capacity
                 toFieldPath: spec.forProvider.instanceClass
