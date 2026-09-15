@@ -15,10 +15,12 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
+  - external-secrets/payment-db-external-secret.yaml
   - namespace.yaml
   - ../../base
   - ../../apps/payment-service
-  - external-secrets/payment-db-external-secret.yaml
+  - ../../apps/python-service
 patches:
   - path: inject/payment-db-env.yaml
   - path: payment-service-patch.yaml
+  - path: python-service-patch.yaml
