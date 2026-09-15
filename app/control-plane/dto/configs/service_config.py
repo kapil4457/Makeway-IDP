@@ -16,6 +16,15 @@ class ServiceConfig(pydantic.BaseModel):
     )
     service_name: Optional[str] = Field(
         default=None,
-        description="Optional name for the service. If omitted, defaults to the service type.",
+        description=(
+            "Optional name for the service. If omitted, defaults to the service "
+            "type. Must be a DNS-1035 label: lowercase letters/digits/hyphens, "
+            "starting with a letter and ending with a letter or digit — the name "
+            "becomes the k8s Service/Deployment/container name (Service rejects "
+            "DNS-1035 violations, e.g. 'node_service' with an underscore)."
+        ),
         examples=["orders-api"],
+        min_length=1,
+        max_length=63,
+        pattern=r"^[a-z]([-a-z0-9]*[a-z0-9])?$",
     )
