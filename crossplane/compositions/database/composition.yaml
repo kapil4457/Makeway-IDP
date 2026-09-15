@@ -171,11 +171,11 @@ spec:
                   name: makeway
                   kind: ClusterProviderConfig
                 # Publish the provider's own connection details (incl. the
-                # master password) straight into the XR's connection Secret —
-                # name patched below from the XR's writeConnectionSecretToRef.
-                # In v2 the function has no read source for FromConnectionSecretKey
-                # on this MR, so the provider-side publish is what puts
-                # `password` in the Secret the Step-2 extract reads.
+                # master password) to this MR's OWN Secret — name patched below
+                # from the MR's own name. Crossplane core observes that Secret
+                # and feeds it back to the function as the MR's connection
+                # details, where FromConnectionSecretKey (below) copies
+                # `password` into the XR's connection Secret.
                 writeConnectionSecretToRef:
                   name: instance-conn
             patches:
@@ -195,11 +195,16 @@ spec:
                 fromFieldPath: spec.parameters.publiclyAccessible
                 toFieldPath: spec.forProvider.publiclyAccessible
               - type: FromCompositeFieldPath
-                # Publish into the XR's connection Secret (same Secret the
-                # function composes the FromFieldPath keys into) — one Secret,
-                # complete key set for the Step-2 extract.
-                fromFieldPath: spec.writeConnectionSecretToRef.name
+                # The MR's OWN connection Secret — writing the XR's Secret
+                # directly is refused by the provider ("existing secret is not
+                # controlled by UID": the composite controls it).
+                fromFieldPath: metadata.name
                 toFieldPath: spec.writeConnectionSecretToRef.name
+                transforms:
+                  - type: string
+                    string:
+                      type: Format
+                      fmt: "%s-conn"
               - type: FromCompositeFieldPath
                 fromFieldPath: spec.parameters.capacity
                 toFieldPath: spec.forProvider.instanceClass
