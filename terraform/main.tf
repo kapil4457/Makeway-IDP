@@ -71,7 +71,11 @@ data "aws_ami" "amazon_linux_2023_arm64" {
 
   filter {
     name   = "name"
-    values = ["al2023-ami-*-kernel-6.1-arm64"]
+    # "2*" excludes the al2023-ami-minimal-* variant: AWS publishes it with the
+    # SAME CreationDate as the standard AMI, so most_recent tie-breaks onto it —
+    # and the minimal AMI ships without SSM-agent/EIC plumbing (instance boots,
+    # but never registers with Session Manager).
+    values = ["al2023-ami-2*-kernel-6.1-arm64"]
   }
 
   filter {

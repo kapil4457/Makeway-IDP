@@ -21,7 +21,7 @@ done
 REGION="${AWS_REGION:-us-east-1}"
 LOCAL_PORT="${LOCAL_PORT:-5432}"
 # FIXED: Re-added variable expansion check & hardcoded fallback address
-REMOTE_HOST="${RDS_ENDPOINT:-makeway-db.c388w48wc3il.us-east-1.rds.amazonaws.com}"            
+REMOTE_HOST="${RDS_ENDPOINT:-makeway-db.c9ussgcgsaad.us-east-1.rds.amazonaws.com}"            
 REMOTE_PORT="${REMOTE_PORT:-5432}"
 BASTION_TAG="makeway-bastion"
 
