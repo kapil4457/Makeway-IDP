@@ -11,4 +11,4 @@ spec:
     spec:
       containers:
         - name: payment-service
-          image: makeway-placeholder/payment-service:pending-first-build
+          image: kapil4457/makeway-apps:payment-service-f4af4a7261b6f9b291898257f1a25a62dc3aefe8
