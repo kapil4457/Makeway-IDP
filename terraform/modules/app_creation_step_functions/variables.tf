@@ -140,9 +140,9 @@ variable "step2_wait_seconds" {
 }
 
 variable "step2_max_attempts" {
-  description = "Budget of Check iterations before the Step-2 flow fails (max_attempts * wait_seconds ≈ total infra budget). 60 × 30s = 30 min: RDS placement plus any first-run capacity retries must fit inside it — 15 min proved too tight and killed the flow mid-check."
+  description = "Budget of Check iterations before the Step-2 flow fails (max_attempts * wait_seconds ≈ total infra budget). 240 × 30s = 120 min: RDS placement plus any first-run capacity retries fit comfortably inside it — 15 min proved too tight and killed the flow mid-check."
   type        = number
-  default     = 60
+  default     = 240
 }
 
 variable "rds_publicly_accessible" {

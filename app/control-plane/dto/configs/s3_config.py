@@ -8,6 +8,7 @@ class S3Config(pydantic.BaseModel):
     region: str = Field(
         ...,
         description="AWS region where the bucket is provisioned.",
+        pattern=r"^[a-z]{2}(-gov)?-[a-z]+-\d$",
         examples=["us-east-1"],
     )
     cloudfront: bool = Field(

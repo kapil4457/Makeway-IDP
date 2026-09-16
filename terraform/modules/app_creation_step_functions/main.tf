@@ -327,7 +327,7 @@ resource "aws_sfn_state_machine" "app_creation" {
   role_arn = aws_iam_role.sfn.arn
 
   definition = jsonencode({
-    Comment = "Makeway app-creation workflow. Step 1 (GitHub Setup) scaffolds the services monorepo + argocd/apps/<app> gitops. Step 2 (Crossplane Provisioning) applies Claims into {app}-{env}, polls Ready+Synced (Wait/check/Choice, capped by the attempt budget), then extracts connection Secrets into Secrets Manager, provisions a scoped IAM user/keys for AWS-API capabilities, and commits ExternalSecrets into gitops. Workers report FAILED themselves then raise."
+    Comment = "Makeway app-creation workflow. Step 1 (GitHub Setup) scaffolds the services monorepo + argocd/apps/<app> gitops. Step 2 (Crossplane Provisioning) applies Claims into {app}-{env}, polls Ready+Synced (Wait/check/Choice, capped by the attempt budget — exhaustion routes through a report_failed invocation so the request is marked FAILED before the Fail state), then extracts connection Secrets into Secrets Manager, provisions a scoped IAM user/keys for AWS-API capabilities, and commits ExternalSecrets into gitops. Workers report FAILED themselves then raise."
     StartAt = "Step1 GitHub Setup"
     States = {
       "Step1 GitHub Setup" = {
@@ -454,7 +454,7 @@ resource "aws_sfn_state_machine" "app_creation" {
           {
             Variable                 = "$.attempt"
             NumericGreaterThanEquals = var.step2_max_attempts
-            Next                     = "Step2 TimedOut"
+            Next                     = "Step2 ReportFailed"
           }
         ]
         Default = "Step2 Retry"
@@ -468,6 +468,42 @@ resource "aws_sfn_state_machine" "app_creation" {
           "attempt.$"    = "States.MathAdd($.attempt, 1)"
         }
         Next = "Step2 Wait"
+      }
+
+      # Attempt budget exhausted: check deliberately never reports FAILED (it
+      # is retried), so this invocation is the request's only chance to be
+      # marked failed before the flow ends. execution_arn comes from the
+      # context object — the Retry Pass strips the state down to
+      # {request_id, job_id, attempt}, so $.execution_arn does not exist here.
+      "Step2 ReportFailed" = {
+        Type     = "Task"
+        Resource = "arn:aws:states:::lambda:invoke"
+        Parameters = {
+          FunctionName = aws_lambda_function.step2.arn
+          Payload = {
+            "action"          = "report_failed"
+            "request_id.$"    = "$.request_id"
+            "job_id.$"        = "$.job_id"
+            "execution_arn.$" = "$$.Execution.Id"
+            "reason"          = "Crossplane claims did not reach Ready+Synced within the attempt budget (${var.step2_max_attempts} checks x ${var.step2_wait_seconds}s wait)."
+          }
+        }
+        OutputPath = "$.Payload"
+        Retry = [
+          {
+            ErrorEquals     = ["Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.SdkClientException"]
+            IntervalSeconds = 5
+            MaxAttempts     = 3
+            BackoffRate     = 2
+          }
+        ]
+        Catch = [
+          {
+            ErrorEquals = ["States.ALL"]
+            Next        = "Step2 TimedOut"
+          }
+        ]
+        Next = "Step2 TimedOut"
       }
 
       "Step2 Extract" = {

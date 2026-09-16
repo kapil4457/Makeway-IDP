@@ -391,6 +391,22 @@ def _account_id() -> str:
     return _account_id_cache
 
 
+_AWS_REGION_RE = re.compile(r"^[a-z]{2}(-gov)?-[a-z]+-\d$")
+
+
+def _region_or_default(value, default: str) -> str:
+    """Pass through user-supplied regions only when shaped like an AWS region.
+
+    Capability config regions are free text from the request; a non-region
+    string (e.g. the capability slug) once reached an XR, the provider built
+    sts.<region>.amazonaws.com from it, and the resource never reconciled.
+    Anything implausible falls back to the platform default.
+    """
+    if isinstance(value, str) and _AWS_REGION_RE.fullmatch(value):
+        return value
+    return default
+
+
 def _claims_for(app_name: str, capability: dict, account_id: str) -> list[dict]:
     """Expand a capability into the Crossplane XR instances it needs.
 
@@ -403,7 +419,7 @@ def _claims_for(app_name: str, capability: dict, account_id: str) -> list[dict]:
     config = capability.get("config") or {}
     namespace = capability["namespace"]
     env = capability.get("environment") or "qa"
-    region = config.get("region") or DEFAULT_REGION
+    region = _region_or_default(config.get("region"), DEFAULT_REGION)
     cap_id = str(capability["capabilityId"])
     # Per-capability cluster access, from the control-plane registry. None on
     # any of these means "use the Lambda env KUBE_* fallback" downstream.
@@ -471,7 +487,7 @@ def _claims_for(app_name: str, capability: dict, account_id: str) -> list[dict]:
                     "APP_NAME": app_name,
                     "ENV": env,
                     "BUCKET_NAME": bucket,
-                    "REGION": s3.get("region") or DEFAULT_REGION,
+                    "REGION": _region_or_default(s3.get("region"), region),
                     "CLOUDFRONT": "true" if s3.get("cloudfront") else "false",
                 },
             )
@@ -1605,10 +1621,40 @@ def _extract(request_id: int, job_id: int, execution_arn: str | None, event: dic
 
 
 # --------------------------------------------------------------------------- #
+# report_failed action — terminal report for the attempt-budget timeout
+# --------------------------------------------------------------------------- #
+
+def _report_failed(
+    request_id: int,
+    job_id: int,
+    execution_arn: str | None,
+    event: dict,
+) -> dict:
+    """Deliver the FAILED report when the state machine's attempt budget runs out.
+
+    This is the one failure path where no worker has reported yet: the
+    Wait/Check loop's check action deliberately never reports (it is retried),
+    so when "Step2 Attempt?" exhausts the budget the flow routes through here
+    before its Fail state — without it the request would sit IN_PROGRESS
+    forever. Report-only; returns a payload the state machine ignores.
+    """
+    reason = str(event.get("reason") or "").strip() or (
+        "Crossplane claims did not reach Ready+Synced within the attempt budget."
+    )
+    _report(request_id, job_id, "failed", execution_arn, error=reason[:2000])
+    return {"request_id": request_id, "job_id": job_id, "reported": "failed"}
+
+
+# --------------------------------------------------------------------------- #
 # Handler — dispatch on action
 # --------------------------------------------------------------------------- #
 
-ACTIONS = {"apply": _apply, "check": _check, "extract": _extract}
+ACTIONS = {
+    "apply": _apply,
+    "check": _check,
+    "extract": _extract,
+    "report_failed": _report_failed,
+}
 
 
 def handler(event, context):

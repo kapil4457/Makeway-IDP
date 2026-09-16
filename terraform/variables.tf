@@ -199,9 +199,9 @@ variable "kube_token" {
 }
 
 variable "step2_max_attempts" {
-  description = "Budget of Step-2 Claim checks before the flow times out (attempts * wait_seconds ≈ total infra budget; default 30x30s ≈ 15 min for RDS)."
+  description = "Budget of Step-2 Claim checks before the flow times out (attempts * wait_seconds ≈ total infra budget). 240 × 30s = 120 min: RDS placement plus first-run capacity retries fit comfortably inside it; a genuinely stuck claim surfaces as Step2TimedOut."
   type        = number
-  default     = 30
+  default     = 240
 }
 
 # --- ArgoCD health reporter ---

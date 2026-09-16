@@ -2,7 +2,8 @@
 
 Covers: template parser over every XR template, capability expansion for all
 four capability types, storage bucket-name length cap, kustomization insert +
-idempotency, per-type IAM policies, and claim token rendering.
+idempotency, per-type IAM policies, claim token rendering, and the
+report_failed terminal timeout path.
 Run:  python _smoke_step2.py
 """
 import importlib.util
@@ -111,6 +112,39 @@ bucket = st["tokens"]["BUCKET_NAME"]
 check("storage bucket <=63 chars", len(bucket) <= 63, bucket)
 check("storage bucket kebab", bucket == bucket.lower())
 check("storage bucket prefix", bucket.startswith("order-service-qa-"), bucket)
+
+# 3b. storage region guard — the s3 config's region is user input. A slug like
+#     "file-storage" once flowed into the XR, the provider built
+#     sts.file-storage.amazonaws.com from it, and the bucket never reconciled.
+#     Implausible values must fall back to the platform region; plausible ones
+#     are honored. The top-level config region is guarded the same way.
+junk = {
+    "capabilityType": "storage",
+    "config": {"region": "file-storage", "s3": {"region": "file-storage"}},
+    "environment": "qa",
+    "namespace": "order-service-qa",
+    "capabilityId": "cap-storage-junk",
+}
+j = m._claims_for("order-service", junk, "123456789012")[0]
+check("junk s3 region -> platform region", j["tokens"]["REGION"] == "us-east-1", str(j["tokens"]["REGION"]))
+good = {
+    "capabilityType": "storage",
+    "config": {"s3": {"region": "eu-west-1"}},
+    "environment": "qa",
+    "namespace": "order-service-qa",
+    "capabilityId": "cap-storage-good",
+}
+g = m._claims_for("order-service", good, "123456789012")[0]
+check("plausible s3 region honored", g["tokens"]["REGION"] == "eu-west-1", str(g["tokens"]["REGION"]))
+top = {
+    "capabilityType": "messaging",
+    "config": {"region": "file-storage", "queue": [{"name": "orders"}]},
+    "environment": "qa",
+    "namespace": "order-service-qa",
+    "capabilityId": "cap-msg-junk",
+}
+t = m._claims_for("order-service", top, "123456789012")[0]
+check("junk top-level region -> platform region", t["tokens"]["REGION"] == "us-east-1", str(t["tokens"]["REGION"]))
 
 # 4. kustomization resource insert + idempotency, decoding the git blob shape
 base = "resources:\n  - ../../base\n  - ../../apps/orders-api\npatches:\n  - path: orders-api-patch.yaml\n"
@@ -237,6 +271,40 @@ check("apply skip attempt == 1", skip.get("attempt") == 1)
 chk = m._check(7, 9, None, {"attempt": 3})
 check("check keys", set(chk) == {"ready", "pending", "attempt", "request_id", "job_id"}, str(chk))
 check("check ready + attempt passthrough", chk["ready"] is True and chk["attempt"] == 3)
+
+# 10b. report_failed — the attempt-budget timeout's terminal report. The
+#      Wait/Check loop's check action deliberately never reports (it retries),
+#      so budget exhaustion must route through this action before the flow's
+#      Fail state, or the request would sit IN_PROGRESS forever. Capture the
+#      control-plane call to assert the payload shape _report sends.
+_captured = []
+
+
+def _capture(method, path, payload=None):
+    _captured.append((method, path, payload))
+    return {}
+
+
+m._control_plane = _capture
+rf = m.ACTIONS["report_failed"](7, 9, "arn:test:execution", {"reason": "attempt budget exhausted"})
+check("report_failed delivers FAILED report",
+      len(_captured) == 1 and _captured[0][0] == "POST"
+      and _captured[0][1] == "/internal/requests/7/status"
+      and _captured[0][2]["status"] == "failed"
+      and _captured[0][2]["jobId"] == 9
+      and _captured[0][2]["executionArn"] == "arn:test:execution"
+      and "attempt budget exhausted" in _captured[0][2]["error"],
+      str(_captured))
+check("report_failed return contract", rf == {"request_id": 7, "job_id": 9, "reported": "failed"}, str(rf))
+_captured.clear()
+m.ACTIONS["report_failed"](7, 9, None, {})
+check("report_failed default reason",
+      len(_captured) == 1 and "attempt budget" in _captured[0][2]["error"], str(_captured))
+m._control_plane = lambda method, path, payload=None: {  # restore the shared stub
+    "job": {"status": "success"},
+    "app": {"appName": "order-service"},
+    "capabilities": [],
+}
 
 # 11. _gone — teardown readiness: only a 404 means the object is gone; any
 #     other status (a live object, a transient API error) keeps it pending.
