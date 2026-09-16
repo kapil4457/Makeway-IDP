@@ -14,9 +14,8 @@ Bootstrap the platform infra from an empty AWS account. Everything after step 5 
 ### 1. Create the state bucket
 Terraform cannot create its own backend, so the S3 bucket must exist before `terraform init`.
 ```sh
-aws s3api create-bucket --bucket makeway-terraform-state --region ap-south-1 \
-  --create-bucket-configuration LocationConstraint=ap-south-1
-aws s3api put-bucket-versioning --bucket makeway-terraform-state \
+aws s3api create-bucket --bucket makeway-remote-backend --region us-east-1 \
+aws s3api put-bucket-versioning --bucket makeway-remote-backend \
   --versioning-configuration Status=Enabled
 ```
 
@@ -99,7 +98,7 @@ If an apply crashes mid-run and leaves a stale S3 lock, force-unlock it:
 ```sh
 terraform force-unlock -force <LOCK_ID>
 ```
-Get the lock ID from the apply error, or list state locks via the S3 object's metadata: `aws s3api get-object-attributes --bucket makeway-terraform-state --key platform/terraform.tfstate`.
+Get the lock ID from the apply error, or list state locks via the S3 object's metadata: `aws s3api get-object-attributes --bucket makeway-remote-backend --key platform/terraform.tfstate`.
 
 ### 5. Set the GitHub secret + variables (browser)
 GitHub requires your auth to write these — set under repo **Settings → Secrets and variables → Actions**, for the repo `kapil4457/Makeway-IDP`:
@@ -114,7 +113,7 @@ GitHub requires your auth to write these — set under repo **Settings → Secre
 |---|---|
 | `OIDC_GITHUB_OWNER_ID` | `<github_owner_id>` (from step 2) |
 | `OIDC_GITHUB_REPO_ID` | `<github_repo_id>` (from step 2) |
-| `AWS_REGION` | `ap-south-1` |
+| `AWS_REGION` | `us-east-1` |
 
 `OIDC_GITHUB_OWNER_ID` / `OIDC_GITHUB_REPO_ID` are still set here for record, but the `deploy-infra` / `destroy-infra` workflows no longer inject them as `TF_VAR_*` — the platform root no longer declares the `github_*` variables. Only `AWS_REGION` is used by the workflows (as `vars.AWS_REGION`).
 
@@ -141,7 +140,7 @@ terraform apply
 
 # check SQS + DLQ
 aws sqs get-queue-url --queue-name makeway-requests
-aws sqs list-queues --region ap-south-1
+aws sqs list-queues --region us-east-1
 
 # troubleshoot the role assumption from CI
 #   "Not authorized to perform sts:AssumeRoleWithWebIdentity"

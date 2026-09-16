@@ -11,7 +11,7 @@ logger.setLevel(logging.INFO)
 
 step_functions = boto3.client(
     "stepfunctions",
-    region_name=os.environ.get("AWS_REGION", "ap-south-1"),
+    region_name=os.environ.get("AWS_REGION", "us-east-1"),
 )
 
 STATE_MACHINE_ARN = os.environ.get(

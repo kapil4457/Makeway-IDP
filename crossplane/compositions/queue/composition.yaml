@@ -46,7 +46,7 @@ spec:
               kind: Queue
               spec:
                 forProvider:
-                  region: ap-south-1
+                  region: us-east-1
                   messageRetentionSeconds: 1209600
                   tags:
                     managed-by: makeway
@@ -80,7 +80,7 @@ spec:
               kind: Queue
               spec:
                 forProvider:
-                  region: ap-south-1
+                  region: us-east-1
                   visibilityTimeoutSeconds: 60
                   messageRetentionSeconds: 345600
                   tags:

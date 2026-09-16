@@ -252,7 +252,7 @@ See [docs/design/AWS-Service-Accounts.md](docs/design/AWS-Service-Accounts.md) f
 The platform's own infrastructure is Terraform, applied through GitHub Actions with **OIDC federation** (no static keys in GitHub):
 
 - **`terraform/bootstrap/`** creates the GitHub OIDC provider and the `github-actions-terraform` role — in its own Terraform root with its own state, so a platform teardown can never take CI down with it.
-- **`terraform/`** is the platform root — VPC, SQS (`makeway-requests`), ALB, ECS-hosted control plane, RDS, a bastion for database access, plus the worker Lambdas and the state machine itself. State lives in `makeway-terraform-state`.
+- **`terraform/`** is the platform root — VPC, SQS (`makeway-requests`), ALB, ECS-hosted control plane, RDS, a bastion for database access, plus the worker Lambdas and the state machine itself. State lives in `makeway-remote-backend`.
 - The `deploy-infra` workflow runs `plan` and `apply` behind the `makeway-infra-deploy` environment (a human approval gate on GitHub), executing the *exact same plan artifact* that was reviewed.
 
 This is deliberate: a Terraform plan has to be seen by a human before it touches the VPC. It's the push half of the platform's two-sided deployment model — read [docs/design/Deployment-Model.md](docs/design/Deployment-Model.md) for the full argument.
@@ -393,7 +393,7 @@ How the plumbing works:
 | Name | Kind | Used by |
 |---|---|---|
 | `AWS_ROLE_ARN` | 🔒 Secret | `deploy-infra.yaml`, `destroy-infra.yaml` — OIDC assume-role |
-| `AWS_REGION` | Variable | the deploy workflows above (default `ap-south-1`) |
+| `AWS_REGION` | Variable | the deploy workflows above (default `us-east-1`) |
 | `MAKEWAY_KUBE_API_ENDPOINT` | Variable | the workflows above → `TF_VAR_kube_api_endpoint` |
 | `MAKEWAY_KUBE_TOKEN` | 🔒 Secret | the workflows above → `TF_VAR_kube_token` |
 | `MAKEWAY_KUBE_CA_CERT` | Variable | the workflows above → `TF_VAR_kube_ca_cert` (optional, empty = TLS off) |
@@ -467,7 +467,7 @@ is still the override if you ever apply from a machine.
 | `CONTROL_PLANE_URL` | top of handler | Internal API base URL | derived in Terraform — `local.worker_control_plane_url` (Cloud Map, in-VPC) | — |
 | `INTERNAL_API_KEY` | top of handler | Worker → control-plane shared key | module `var.internal_api_key` (auto-gen) | — |
 | `MAKEWAY_PLATFORM_REPO` | top of handler | Platform repo name | module env | `Makeway-IDP` |
-| `AWS_REGION` | top of handler | boto3 region | Lambda-managed | `ap-south-1` |
+| `AWS_REGION` | top of handler | boto3 region | Lambda-managed | `us-east-1` |
 
 #### Step-2 Lambda (Crossplane / infra provisioning)
 
@@ -481,14 +481,14 @@ is still the override if you ever apply from a machine.
 | `SECRETS_PREFIX` | `step_2/handler.py:78` | Secrets Manager name prefix | module `var.secrets_prefix` | `makeway` |
 | `RDS_PUBLICLY_ACCESSIBLE` | `step_2/handler.py:85` | Expose RDS publicly (local cluster) | module `var.rds_publicly_accessible` | `true` |
 | `RDS_INGRESS_CIDR` | `step_2/handler.py:86` | 5432 ingress CIDR | module `var.rds_ingress_cidr` | empty → platform VPC CIDR (SSM) |
-| `DEFAULT_REGION` / `AWS_REGION` | `step_2/handler.py:58-59` | AWS region for boto3 clients | module env | `ap-south-1` |
+| `DEFAULT_REGION` / `AWS_REGION` | `step_2/handler.py:58-59` | AWS region for boto3 clients | module env | `us-east-1` |
 
 #### SQS-consumer Lambda
 
 | Env var | Read in | Meaning | Set by | Default |
 |---|---|---|---|---|
 | `APP_CREATION_STATE_MACHINE_ARN` | `workers/sqs_consumer/handler.py:17` | State machine to start per message | module env (only set when ARN known) | empty → worker warns + skips |
-| `AWS_REGION` | `workers/sqs_consumer/handler.py:14` | boto3 region | Lambda-managed | `ap-south-1` |
+| `AWS_REGION` | `workers/sqs_consumer/handler.py:14` | boto3 region | Lambda-managed | `us-east-1` |
 
 ---
 

@@ -57,7 +57,7 @@ GITHUB_OWNER = os.environ["GITHUB_OWNER"]
 GITHUB_TOKEN_SECRET_ID = os.environ["GITHUB_TOKEN_SECRET_ID"]
 CONTROL_PLANE_URL = os.environ["CONTROL_PLANE_URL"].rstrip("/")
 INTERNAL_API_KEY = os.environ["INTERNAL_API_KEY"]
-REGION = os.environ.get("AWS_REGION", "ap-south-1")
+REGION = os.environ.get("AWS_REGION", "us-east-1")
 
 # Repository hosting the GitOps configs — this platform repo. Step 1 writes
 # argocd/apps/<appName>/ here instead of creating a per-app gitops repository.

@@ -7,9 +7,9 @@ terraform {
   }
 
   backend "s3" {
-    bucket       = "makeway-terraform-state"
+    bucket       = "makeway-remote-backend"
     key          = "platform/clusters/uat/terraform.tfstate"
-    region       = "ap-south-1"
+    region       = "us-east-1"
     use_lockfile = true
     encrypt      = true
   }
@@ -23,9 +23,9 @@ data "terraform_remote_state" "network" {
   backend = "s3"
 
   config = {
-    bucket = "makeway-terraform-state"
+    bucket = "makeway-remote-backend"
     key    = "platform/network/terraform.tfstate"
-    region = "ap-south-1"
+    region = "us-east-1"
   }
 }
 

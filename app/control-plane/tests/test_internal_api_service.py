@@ -215,7 +215,7 @@ def test_details_and_status_callbacks() -> None:
                 jobId=job_id,
                 step="create_project",
                 status="in_progress",
-                executionArn="arn:aws:states:ap-south-1:111:execution:x:y",
+                executionArn="arn:aws:states:us-east-1:111:execution:x:y",
             ),
         )
         # Success callback with the repo URLs and per-service folder paths.
@@ -244,7 +244,7 @@ def test_details_and_status_callbacks() -> None:
         assert app.gitOpsPath == "argocd/apps/order-service/"
         assert job.status == JobStatus.SUCCESS
         assert job.step == JobStep.CREATE_PROJECT
-        assert job.stepFunctionExecutionArn == "arn:aws:states:ap-south-1:111:execution:x:y"
+        assert job.stepFunctionExecutionArn == "arn:aws:states:us-east-1:111:execution:x:y"
         assert job.errorDetail is None
         assert req.requestStatus == RequestStatus.SUCCESS
         assert {(s.svcName, s.repoPath) for s in services} == {
@@ -294,11 +294,11 @@ def test_capability_outputs_written_from_step2_callback() -> None:
                         "capabilityId": capability_id,
                         "status": "success",
                         "outputRef": {
-                            "endpoint": "orders-db.xxxxxxxxxxxx.ap-south-1.rds.amazonaws.com",
+                            "endpoint": "orders-db.xxxxxxxxxxxx.us-east-1.rds.amazonaws.com",
                             "port": 5432,
                             "databaseName": "orders",
                         },
-                        "secretRef": "arn:aws:secretsmanager:ap-south-1:111:secret:makeway/order-service/qa/orders-abc",
+                        "secretRef": "arn:aws:secretsmanager:us-east-1:111:secret:makeway/order-service/qa/orders-abc",
                     }
                 ],
             ),

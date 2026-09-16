@@ -1,7 +1,7 @@
 variable "region" {
   description = "AWS region for the GitHub Actions OIDC identity."
   type        = string
-  default     = "ap-south-1"
+  default     = "us-east-1"
 }
 
 variable "github_actions_role_name" {

@@ -55,7 +55,7 @@ logger.setLevel(logging.INFO)
 # --- Environment (set on the Lambda) -----------------------------------------
 CONTROL_PLANE_URL = os.environ["CONTROL_PLANE_URL"].rstrip("/")
 INTERNAL_API_KEY = os.environ["INTERNAL_API_KEY"]
-REGION = os.environ.get("AWS_REGION", "ap-south-1")
+REGION = os.environ.get("AWS_REGION", "us-east-1")
 DEFAULT_REGION = os.environ.get("DEFAULT_REGION", REGION)
 
 # --- Exposed cluster access --------------------------------------------------

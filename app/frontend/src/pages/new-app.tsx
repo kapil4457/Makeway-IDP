@@ -622,7 +622,7 @@ function CapabilityRepeater({
                           ? { ...item, draft: { ...item.draft, kind: 'storage', region: event.target.value } as CapabilityDraft }
                           : item)))
                       }
-                      placeholder="ap-south-1 (optional)"
+                      placeholder="us-east-1 (optional)"
                     />
                   </Field>
                   <label className="flex h-9 items-end gap-2 pb-1.5 text-sm text-muted-foreground">

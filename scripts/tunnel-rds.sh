@@ -18,10 +18,10 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-REGION="${AWS_REGION:-ap-south-1}"
+REGION="${AWS_REGION:-us-east-1}"
 LOCAL_PORT="${LOCAL_PORT:-5432}"
 # FIXED: Re-added variable expansion check & hardcoded fallback address
-REMOTE_HOST="${RDS_ENDPOINT:-makeway-db.c388w48wc3il.ap-south-1.rds.amazonaws.com}"            
+REMOTE_HOST="${RDS_ENDPOINT:-makeway-db.c388w48wc3il.us-east-1.rds.amazonaws.com}"            
 REMOTE_PORT="${REMOTE_PORT:-5432}"
 BASTION_TAG="makeway-bastion"
 
@@ -46,7 +46,7 @@ if [[ -z "$REMOTE_HOST" || "$REMOTE_HOST" == "null" ]]; then
   if [[ -z "$REMOTE_HOST" || "$REMOTE_HOST" == "null" || "$REMOTE_HOST" == "<nil>" ]]; then
     echo "!! could not read control_plane_db_endpoint from terraform state." >&2
     echo "   Set RDS_ENDPOINT=<endpoint-host> explicitly and re-run, e.g.:" >&2
-    echo "   RDS_ENDPOINT=makeway-db.xxxxx.ap-south-1.rds.amazonaws.com scripts/tunnel-rds.sh" >&2
+    echo "   RDS_ENDPOINT=makeway-db.xxxxx.us-east-1.rds.amazonaws.com scripts/tunnel-rds.sh" >&2
     exit 1
   fi
 fi

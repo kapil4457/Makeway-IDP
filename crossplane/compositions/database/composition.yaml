@@ -61,7 +61,7 @@ spec:
               kind: SubnetGroup
               spec:
                 forProvider:
-                  region: ap-south-1
+                  region: us-east-1
                   subnetIds: []
                   tags:
                     managed-by: makeway
@@ -83,7 +83,7 @@ spec:
               kind: SecurityGroup
               spec:
                 forProvider:
-                  region: ap-south-1
+                  region: us-east-1
                   vpcId: ""
                   description: Makeway-managed RDS security group
                   tags:
@@ -106,7 +106,7 @@ spec:
               kind: SecurityGroupRule
               spec:
                 forProvider:
-                  region: ap-south-1
+                  region: us-east-1
                   type: ingress
                   fromPort: 5432
                   toPort: 5432
@@ -136,7 +136,7 @@ spec:
               kind: Instance
               spec:
                 forProvider:
-                  region: ap-south-1
+                  region: us-east-1
                   engine: postgres
                   engineVersion: "17"
                   instanceClass: db.t4g.small

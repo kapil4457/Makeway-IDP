@@ -19,7 +19,7 @@ os.environ.setdefault("KUBE_TOKEN", "test-token")
 os.environ.setdefault("GITHUB_OWNER", "kapil4457")
 os.environ.setdefault("GITHUB_TOKEN_SECRET_ID", "makeway/test-github-pat")
 os.environ.setdefault("MAKEWAY_PLATFORM_REPO", "kapil4457/Makeway-IDP")
-os.environ.setdefault("DEFAULT_REGION", "ap-south-1")
+os.environ.setdefault("DEFAULT_REGION", "us-east-1")
 os.environ.setdefault("PLATFORM_VPC_PARAMETER", "/makeway/platform/vpc")
 
 H = Path(__file__).resolve().parent / "handler.py"
@@ -61,7 +61,7 @@ for t in sorted(Path("claim_templates").glob("*.yaml")):
 #    control-plane get_request_details returns: namespace = {app}-{env}.
 caps = [
     {"capabilityType": "rel_database", "config": {"name": "orders"}, "environment": "qa", "namespace": "order-service-qa", "capabilityId": "cap-rds"},
-    {"capabilityType": "storage", "config": {"s3": {"region": "ap-south-1"}}, "environment": "qa", "namespace": "order-service-qa", "capabilityId": "cap-storage"},
+    {"capabilityType": "storage", "config": {"s3": {"region": "us-east-1"}}, "environment": "qa", "namespace": "order-service-qa", "capabilityId": "cap-storage"},
     {
         "capabilityType": "messaging",
         "config": {"queue": [{"name": "orders"}], "notification": True},
@@ -84,7 +84,7 @@ for cap in caps:
 #     without those keys yields None, so _kube falls back to the Lambda globals.
 kube_cap = {
     "capabilityType": "storage",
-    "config": {"s3": {"region": "ap-south-1"}},
+    "config": {"s3": {"region": "us-east-1"}},
     "environment": "prod",
     "namespace": "order-service-prod",
     "capabilityId": "cap-storage-prod",
@@ -182,14 +182,14 @@ q_claim = [c for c in m._claims_for("order-service", caps[2], "123456789012") if
 pol_queue = m._aws_policy(
     q_claim,
     {
-        "queueUrl": "https://sqs.ap-south-1.amazonaws.com/123456789012/orders",
-        "queueArn": "arn:aws:sqs:ap-south-1:123456789012:orders",
-        "dlqArn": "arn:aws:sqs:ap-south-1:123456789012:orders-dlq",
+        "queueUrl": "https://sqs.us-east-1.amazonaws.com/123456789012/orders",
+        "queueArn": "arn:aws:sqs:us-east-1:123456789012:orders",
+        "dlqArn": "arn:aws:sqs:us-east-1:123456789012:orders-dlq",
     },
 )
 check("queue policy sqs actions", "sqs:" in str(pol_queue) and str(pol_queue).count("arn:") >= 2)
 n_claim = [c for c in m._claims_for("order-service", caps[2], "123456789012") if c["slug"] == "notification"][0]
-pol_sns = m._aws_policy(n_claim, {"topicArn": "arn:aws:sns:ap-south-1:123456789012:order-service-qa-notification"})
+pol_sns = m._aws_policy(n_claim, {"topicArn": "arn:aws:sns:us-east-1:123456789012:order-service-qa-notification"})
 check("sns policy publish action", "sns:Publish" in str(pol_sns) and "arn:aws:sns" in str(pol_sns))
 
 # 8. env-injection naming + patch builder + kustomize patches insert.

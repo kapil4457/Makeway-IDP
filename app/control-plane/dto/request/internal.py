@@ -35,7 +35,7 @@ class InternalCapabilityOutput(BaseModel):
         default=None,
         description="ARN of the AWS Secrets Manager secret the credentials were "
         "mirrored into (``InfraRequirement.secretRef``). Never the value itself.",
-        examples=["arn:aws:secretsmanager:ap-south-1:123456789012:secret:order-service-qa-orders"],
+        examples=["arn:aws:secretsmanager:us-east-1:123456789012:secret:order-service-qa-orders"],
     )
     errorMessage: str | None = Field(
         default=None,
@@ -86,7 +86,7 @@ class InternalStatusUpdateRequest(BaseModel):
     executionArn: str | None = Field(
         default=None,
         description="Step Functions execution ARN to persist on the job.",
-        examples=["arn:aws:states:ap-south-1:123456789012:execution:makeway-app-creation:a1b2c3"],
+        examples=["arn:aws:states:us-east-1:123456789012:execution:makeway-app-creation:a1b2c3"],
     )
     error: str | None = Field(
         default=None,

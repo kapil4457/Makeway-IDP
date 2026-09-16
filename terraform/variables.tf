@@ -1,7 +1,7 @@
 variable "region" {
   description = "AWS region for shared platform infrastructure."
   type        = string
-  default     = "ap-south-1"
+  default     = "us-east-1"
 }
 
 variable "sqs_queue_name" {
@@ -23,9 +23,9 @@ variable "vpc_cidr" {
 }
 
 variable "availability_zones" {
-  description = "Availability zones to spread private/public subnets across (2+ required for RDS). Private subnets span all three AZs: RDS capacity for burstable classes comes and goes per-AZ, and ap-south-1c is the fallback when 1a/1b are short (InvalidVPCNetworkStateFault)."
+  description = "Availability zones to spread private/public subnets across (2+ required for RDS). Private subnets span all three AZs: RDS capacity for burstable classes comes and goes per-AZ, and us-east-1c is the fallback when 1a/1b are short (InvalidVPCNetworkStateFault)."
   type        = list(string)
-  default     = ["ap-south-1a", "ap-south-1b", "ap-south-1c"]
+  default     = ["us-east-1a", "us-east-1b", "us-east-1c"]
 }
 
 variable "private_subnet_cidrs" {

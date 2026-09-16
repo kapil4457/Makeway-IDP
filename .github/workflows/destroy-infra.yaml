@@ -46,7 +46,7 @@ jobs:
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           role-session-name: makeway-infra-destroy
-          aws-region: ${{ vars.AWS_REGION || 'ap-south-1' }}
+          aws-region: ${{ vars.AWS_REGION || 'us-east-1' }}
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v4
@@ -81,7 +81,7 @@ jobs:
 
       - name: Drain ECS before destroy
         env:
-          AWS_REGION: ${{ vars.AWS_REGION || 'ap-south-1' }}
+          AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
         run: |
           set -euo pipefail
           # Outputs may already be gone on a re-run after a partial destroy —

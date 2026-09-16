@@ -88,7 +88,7 @@ spec:
                       description: "Capacity tier (1 = smallest, 10 = largest). The Composition maps it to an RDS instance class and sizes storage at 10 GB per tier point (tier 5 = 50GB)."
                     region:
                       type: string
-                      default: ap-south-1
+                      default: us-east-1
                       description: "AWS region where the database is created."
                     engineVersion:
                       type: string

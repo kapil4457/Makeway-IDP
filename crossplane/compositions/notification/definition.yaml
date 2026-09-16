@@ -58,5 +58,5 @@ spec:
                       description: "SNS topic name (derived from the app by the Lambda, e.g. {appName}-{env}-notifications)."
                     region:
                       type: string
-                      default: ap-south-1
+                      default: us-east-1
                       description: "AWS region where the topic is created."

@@ -59,7 +59,7 @@ jobs:
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           role-session-name: makeway-infra-plan
-          aws-region: ${{ vars.AWS_REGION || 'ap-south-1' }}
+          aws-region: ${{ vars.AWS_REGION || 'us-east-1' }}
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v4
@@ -218,7 +218,7 @@ jobs:
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           role-session-name: makeway-infra-apply
-          aws-region: ${{ vars.AWS_REGION || 'ap-south-1' }}
+          aws-region: ${{ vars.AWS_REGION || 'us-east-1' }}
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v4

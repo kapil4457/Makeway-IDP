@@ -166,7 +166,7 @@ def _seed() -> tuple:
             capabilityId=cap.capabilityId,
             config={"type": "rel_database", "name": "orders", "capacity": 5},
             outputRef={"endpoint": "orders.internal", "port": 5432},
-            secretRef="arn:aws:secretsmanager:ap-south-1:111:secret:orders-qa",
+            secretRef="arn:aws:secretsmanager:us-east-1:111:secret:orders-qa",
         )
         session.add(infra)
         session.flush()

@@ -15,9 +15,9 @@ terraform {
   }
 
   backend "s3" {
-    bucket       = "makeway-terraform-state"
+    bucket       = "makeway-remote-backend"
     key          = "platform/terraform.tfstate"
-    region       = "ap-south-1"
+    region       = "us-east-1"
     use_lockfile = true
     encrypt      = true
   }
@@ -267,8 +267,9 @@ module "rds" {
 # The ALB's security group is internet-facing (listeners 80), but the RDS SG
 # admits traffic only from the ECS task SG. To reach RDS from your laptop
 # (sQleur Electron) we route through a tiny bastion via SSM Session Manager
-# port-forwarding. (EC2 Instance Connect Endpoint is not offered in ap-south-1,
-# so SSM is the jump-host path.) The bastion carries the
+# port-forwarding. (EC2 Instance Connect Endpoint exists in us-east-1, but SSM
+# port-forwarding needs no key material and works in every region, so it stays
+# the jump-host path.) The bastion carries the
 # AmazonSSMManagedInstanceCore role below, which is what makes this work.
 
 # Optional SSH key pair for the bastion (direct SSH is unnecessary — SSM

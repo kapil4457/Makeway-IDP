@@ -38,7 +38,7 @@ variable "github_deploy_environment" {
 variable "aws_region" {
   description = "AWS region the role/oidc provider is scoped to."
   type        = string
-  default     = "ap-south-1"
+  default     = "us-east-1"
 }
 
 variable "attached_policy_arns" {

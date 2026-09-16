@@ -17,9 +17,9 @@ terraform {
   }
 
   backend "s3" {
-    bucket       = "makeway-terraform-state"
+    bucket       = "makeway-remote-backend"
     key          = "bootstrap/terraform.tfstate"
-    region       = "ap-south-1"
+    region       = "us-east-1"
     use_lockfile = true
     encrypt      = true
   }

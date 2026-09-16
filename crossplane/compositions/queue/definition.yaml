@@ -63,7 +63,7 @@ spec:
                       description: "Base queue name (the DLQ is derived as {queueName}-dlq). Matches QueueConfig.name."
                     region:
                       type: string
-                      default: ap-south-1
+                      default: us-east-1
                       description: "AWS region where the queue is created."
                     visibilityTimeoutSeconds:
                       type: integer

@@ -31,7 +31,7 @@ terraform/
 | `terraform/bootstrap/` | `bootstrap/terraform.tfstate` | GitHub OIDC provider + `github-actions-terraform` role |
 | `terraform/` | `platform/terraform.tfstate` | VPC, SQS, ALB, ECS control plane, RDS, bastion, worker Lambdas + state machine |
 
-Both live in the shared S3 bucket `makeway-terraform-state` (versioning + SSE-S3
+Both live in the shared S3 bucket `makeway-remote-backend` (versioning + SSE-S3
 enabled, public access blocked, native S3 locking with `use_lockfile = true`).
 
 The separation is deliberate: a `terraform destroy` of the platform root
@@ -143,9 +143,8 @@ secrets/variables to set) is in [BOOTSTRAP.md](BOOTSTRAP.md).
 
 ```sh
 # 1. state bucket (Terraform can't create its own backend)
-aws s3api create-bucket --bucket makeway-terraform-state --region ap-south-1 \
-  --create-bucket-configuration LocationConstraint=ap-south-1
-aws s3api put-bucket-versioning --bucket makeway-terraform-state \
+aws s3api create-bucket --bucket makeway-remote-backend --region us-east-1 \
+aws s3api put-bucket-versioning --bucket makeway-remote-backend \
   --versioning-configuration Status=Enabled
 
 # 2. OIDC identity (own root + own state)

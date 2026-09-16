@@ -15,7 +15,7 @@ class AppCreationQueue:
             os.environ.get("SQS_REGION")
             or os.environ.get("AWS_REGION")
             or os.environ.get("AWS_DEFAULT_REGION")
-            or "ap-south-1"
+            or "us-east-1"
         )
 
         endpoint_url = os.environ.get("SQS_ENDPOINT_URL") or None

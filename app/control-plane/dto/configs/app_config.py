@@ -39,7 +39,7 @@ class AppConfig(pydantic.BaseModel):
                                     "config": {
                                         "type": "storage",
                                         "s3": {
-                                            "region": "ap-south-1",
+                                            "region": "us-east-1",
                                             "cloudfront": True,
                                         },
                                     },
