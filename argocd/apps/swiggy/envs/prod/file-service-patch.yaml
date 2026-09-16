@@ -11,4 +11,4 @@ spec:
     spec:
       containers:
         - name: file-service
-          image: makeway-placeholder/file-service:pending-first-build
+          image: kapil4457/makeway-apps:file-service-f4af4a7261b6f9b291898257f1a25a62dc3aefe8
