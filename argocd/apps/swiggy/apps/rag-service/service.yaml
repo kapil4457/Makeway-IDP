@@ -1,0 +1,16 @@
+# Service for the rag-service golden-path service.
+apiVersion: v1
+kind: Service
+metadata:
+  name: rag-service
+  labels:
+    app: rag-service
+    managed-by: makeway
+spec:
+  selector:
+    app: rag-service
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8000
+      protocol: TCP
