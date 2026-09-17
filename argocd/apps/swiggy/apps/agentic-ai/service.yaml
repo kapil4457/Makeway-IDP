@@ -1,0 +1,16 @@
+# Service for the agentic-ai golden-path service.
+apiVersion: v1
+kind: Service
+metadata:
+  name: agentic-ai
+  labels:
+    app: agentic-ai
+    managed-by: makeway
+spec:
+  selector:
+    app: agentic-ai
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8000
+      protocol: TCP
