@@ -28,8 +28,3 @@ spec:
                 secretKeyRef:
                   name: storage
                   key: aws_access_key_id
-            - name: MAKEWAY_STORAGE_AWS_SECRET_ACCESS_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: storage
-                  key: aws_secret_access_key
