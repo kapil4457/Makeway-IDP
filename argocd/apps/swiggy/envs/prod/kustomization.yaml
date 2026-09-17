@@ -19,6 +19,7 @@ resources:
   - ../../base
   - ../../apps/agentic-ai
   - ../../apps/file-service
+  - external-secrets/vector-db-external-secret.yaml
 patches:
   - path: agentic-ai-patch.yaml
   - path: file-service-patch.yaml
