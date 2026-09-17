@@ -1,0 +1,32 @@
+# Golden-path Deployment for the test-svc service.
+# Shared across environments — the envs/<env>/ overrides patch the image tag per
+# environment. Makeway CI rewrites those patches after every build on main.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: test-svc
+  labels:
+    app: test-svc
+    managed-by: makeway
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: test-svc
+  template:
+    metadata:
+      labels:
+        app: test-svc
+    spec:
+      containers:
+        - name: test-svc
+          image: makeway-placeholder/test-svc:pending-first-build
+          ports:
+            - containerPort: 8000
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
