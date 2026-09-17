@@ -21,5 +21,6 @@ resources:
   - ../../apps/file-service
   - external-secrets/vector-db-external-secret.yaml
 patches:
+  - path: inject/vector-db-env.yaml
   - path: agentic-ai-patch.yaml
   - path: file-service-patch.yaml

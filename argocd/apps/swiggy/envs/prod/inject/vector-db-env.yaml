@@ -1,0 +1,35 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agentic-ai
+spec:
+  template:
+    spec:
+      containers:
+        - name: agentic-ai
+          env:
+            - name: MAKEWAY_VECTOR_DB_DATABASE_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: vector-db
+                  key: databaseName
+            - name: MAKEWAY_VECTOR_DB_ENDPOINT
+              valueFrom:
+                secretKeyRef:
+                  name: vector-db
+                  key: endpoint
+            - name: MAKEWAY_VECTOR_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: vector-db
+                  key: password
+            - name: MAKEWAY_VECTOR_DB_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: vector-db
+                  key: port
+            - name: MAKEWAY_VECTOR_DB_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: vector-db
+                  key: username
