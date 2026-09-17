@@ -11,4 +11,4 @@ spec:
     spec:
       containers:
         - name: rag-service
-          image: makeway-placeholder/rag-service:pending-first-build
+          image: kapil4457/makeway-apps:rag-service-70ed6494e86c548d9b012e3f39002ac74aa338df
