@@ -276,13 +276,15 @@ module "rds" {
 # the jump-host path.) The bastion carries the
 # AmazonSSMManagedInstanceCore role below, which is what makes this work.
 
-# Optional SSH key pair for the bastion (direct SSH is unnecessary — SSM
-# brokers sessions and port-forwards without key material — so leave
-# bastion_ssh_public_key_path empty to skip creating one entirely).
+# Optional SSH key pair for the bastion (direct SSH is unnecessary for
+# session access, but the reverse tunnel's sshd leg authenticates with it —
+# see localTunnel/bastion-tunnel.md). Leave bastion_ssh_public_key empty to
+# skip creating one entirely. The variable carries the KEY CONTENT, not a
+# path: file() would not resolve a runtime-staged file in a CI apply job.
 resource "aws_key_pair" "bastion" {
-  count      = var.bastion_ssh_public_key_path == "" ? 0 : 1
+  count      = var.bastion_ssh_public_key == "" ? 0 : 1
   key_name   = "makeway-bastion"
-  public_key = file(var.bastion_ssh_public_key_path)
+  public_key = var.bastion_ssh_public_key
 
   tags = {
     Name = "makeway-bastion"

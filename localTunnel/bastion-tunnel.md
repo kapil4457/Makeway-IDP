@@ -27,6 +27,39 @@ Steps at a glance:
 | Tunnel dropped / laptop rebooted | §3 again — the endpoint never moves, nothing to re-register |
 | Infra destroyed and re-applied | §2 (fresh instance) + §5 (new private IP) — the SG rule and key pair return with the apply itself |
 
+## Quick reference — all steps, in order
+
+1. Commit and push the platform changes: the `bastion_kubeapi_from_workers`
+   SG rule, the key-pair variable, and the CI key-staging step.
+2. Set the SSH public key for the bastion — `bastion_ssh_public_key` (the
+   full `ssh-ed25519 AAAA...` line) in `terraform.tfvars` (local applies) or
+   the repo Actions variable `MAKEWAY_BASTION_SSH_PUBLIC_KEY` (CI applies).
+3. `terraform apply` — creates the bastion key pair and the 6443-from-workers
+   SG rule. On a bastion that was created without a key, the key-pair
+   addition replaces the instance: new instance id and private IP, so redo
+   steps 5, 6, 10, 11.
+4. Open an SSM shell to the bastion:
+   `aws ssm start-session --target <bastion-instance-id> --region <region> --profile <profile>`
+5. One-time sshd config on the bastion:
+   `echo 'GatewayPorts clientspecified' | sudo tee /etc/ssh/sshd_config.d/40-gatewayports.conf && sudo systemctl restart sshd`
+6. Get the bastion private IP:
+   `aws ec2 describe-instances --region <region> --profile <profile> --filters Name=tag:Name,Values=makeway-bastion Name=instance-state-name,Values=running --query "Reservations[].Instances[].PrivateIpAddress" --output text`
+7. Terminal 1 (every dev session):
+   `aws ssm start-session --target <bastion-instance-id> --document-name AWS-StartPortForwardingSession --parameters '{"portNumber":["22"],"localPortNumber":["2222"]}' --region <region> --profile <profile>`
+8. Terminal 2 (every dev session):
+   `ssh -N -p 2222 -R 0.0.0.0:6443:127.0.0.1:6443 <bastion-user>@127.0.0.1 -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -o ExitOnForwardFailure=yes`
+9. Verify on the bastion: `ss -tlnp | grep 6443` must show `0.0.0.0:6443`,
+   and `curl -sk https://<bastion-private-ip>:6443/version` must return JSON.
+10. Register or refresh the cluster endpoint: POST to `/cluster/register`
+    with the same `clusterName` and
+    `kubeApiEndpoint = https://<bastion-private-ip>:6443` (omit
+    `kubeToken`/`kubeCaCert` to keep stored values).
+11. Set the worker fallback env (`MAKEWAY_KUBE_API_ENDPOINT`) to the same
+    `https://<bastion-private-ip>:6443` and run the **deploy-infra** workflow
+    once.
+12. Repeat forever: only steps 7–8 per session. After a destroy + re-apply:
+    repeat steps 5, 6, 10, 11 only.
+
 ## Architecture
 
 ```
@@ -54,27 +87,32 @@ platform root:
 - `aws_security_group_rule.bastion_kubeapi_from_workers` ([main.tf](../terraform/main.tf))
   — ingress `tcp/6443` on the bastion, scoped to the workers' security group.
   Never widen it to the internet.
-- `aws_key_pair.bastion` — created once `bastion_ssh_public_key_path` points
-  at a public key. Where the value comes from depends on who applies:
+- `aws_key_pair.bastion` — created once `bastion_ssh_public_key` carries an
+  SSH public key: the full `ssh-ed25519 AAAA...` line, not a path — the
+  variable holds the key *content* so both local and CI applies can supply it.
 
   ```hcl
   # local apply — terraform/terraform.tfvars (never committed)
-  bastion_ssh_public_key_path = "C:/Users/Kapil/.ssh/id_ed25519.pub"
-
-  # CI apply (deploy-infra) — repo Actions variable (an SSH *public* key is
-  # not a secret; it is safe as a plain Actions variable)
-  #   MAKEWAY_BASTION_SSH_PUBLIC_KEY = ssh-ed25519 AAAA... Kapil@LAPTOP-...
+  bastion_ssh_public_key = "ssh-ed25519 AAAA... operator@laptop"
   ```
 
-  An empty value silently skips the key pair (the resource is `count`-gated)
-  — a CI-only apply without the variable deploys a bastion the SSH leg can't
-  authenticate to.
+  CI applies read it from the repo Actions variable
+  `MAKEWAY_BASTION_SSH_PUBLIC_KEY` — a public key is not a secret, so a
+  plain Actions variable is the right home. An empty value silently skips
+  the key pair (the resource is `count`-gated): an apply without it deploys
+  a bastion the tunnel's sshd leg cannot authenticate to.
+- **Adding a key pair to a bastion created without one REPLACES the
+  instance** (`key_name` is ForceNew) — the instance id and private IP
+  change, so §2 and §5 must be redone. A deploy that carries the key from
+  the start creates the instance with it and never replaces. The SG rule,
+  by contrast, is a standalone resource and always attaches without
+  replacement.
 
-The key attaches to the instance as an in-place update — no replacement.
 Direct-SSH setups (option A in §3) additionally need ingress `tcp/22` from
 the operator's IP and an EIP for a stable target; the SSM-brokered default
-needs neither. The **private** IP — what the workers and the cluster
-registry use — is stable for the instance's lifetime either way.
+needs neither. Within an instance's lifetime the **private** IP — what the
+workers and the cluster registry use — is stable; across a replacement
+(including a key-pair addition) it is not.
 
 ## 2. One-time sshd config on the bastion
 
@@ -82,12 +120,18 @@ By default sshd binds `-R` forwards to loopback only; the workers need
 `0.0.0.0:6443`. Open an SSM session and set `GatewayPorts`:
 
 ```bash
-aws ssm start-session --target <bastion-instance-id>
+aws ssm start-session --target <bastion-instance-id> --region us-east-1 --profile makeway
 
 # on the bastion:
 echo 'GatewayPorts clientspecified' | sudo tee /etc/ssh/sshd_config.d/40-gatewayports.conf
 sudo systemctl restart sshd
 ```
+
+The `--region` matters: the makeway profile defaults to `ap-south-1` while
+the platform lives in `us-east-1`, and SSM calls aimed at the wrong region
+fail with a misleading `403 UnauthorizedRequest / Forbidden` (the same
+signature expired shell-credentials produce — `env | grep ^AWS_` should be
+empty when the profile is meant to carry the auth).
 
 `clientspecified` (not `yes`) keeps the client in control of the bind address
 and does not open sshd beyond what the security group already restricts.
@@ -106,7 +150,8 @@ port 22:
 ```bash
 aws ssm start-session --target <bastion-instance-id> \
   --document-name AWS-StartPortForwardingSession \
-  --parameters '{"portNumber":["22"],"localPortNumber":["2222"]}'
+  --parameters '{"portNumber":["22"],"localPortNumber":["2222"]}' \
+  --region us-east-1 --profile makeway
 ```
 
 Terminal 2 tunnels through it:

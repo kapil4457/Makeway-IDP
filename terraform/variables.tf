@@ -218,8 +218,8 @@ variable "health_reporter_schedule" {
 
 # --- Bastion / SSM Session Manager ---
 
-variable "bastion_ssh_public_key_path" {
-  description = "Path to an SSH public key for the bastion host. Optional — the bastion is reached via SSM Session Manager (no key material needed), so leave empty to skip creating a key pair entirely."
+variable "bastion_ssh_public_key" {
+  description = "The SSH public key (the full 'ssh-ed25519 AAAA... comment' line) to install on the bastion host. Optional — the bastion is reached via SSM Session Manager (no key material needed), so leave empty to skip creating a key pair entirely. A public key is not a secret and is safe to keep as a plain CI variable. Note: adding a key pair to a bastion that was created without one REPLACES the instance (key_name is ForceNew)."
   type        = string
   default     = ""
 }
