@@ -261,6 +261,20 @@ export interface ClusterRegisterResponse {
   cluster_name: string
 }
 
+/** camelCase on the wire (dto/request/update_cluster.py). */
+export interface ClusterUpdateRequest {
+  clusterName?: string
+  kubeApiEndpoint?: string
+  kubeToken?: string
+  kubeCaCert?: string
+}
+
+/** camelCase on the wire (dto/response/delete_cluster.py). */
+export interface ClusterDeleteResponse {
+  clusterName: string
+  environment: Environment
+}
+
 export interface ClusterSummary {
   clusterId: number
   clusterName: string

@@ -50,6 +50,14 @@ class ServiceRepository:
 
         return self.session.exec(statement).all()
 
+    def get_by_cluster(self, cluster_id: int) -> list[Service]:
+        """All service rows deployed to a cluster, across every app."""
+        statement = select(Service).where(
+            Service.clusterId == cluster_id,
+        )
+
+        return self.session.exec(statement).all()
+
     def create(self, service: Service) -> Service:
         self.session.add(service)
         self.session.flush()

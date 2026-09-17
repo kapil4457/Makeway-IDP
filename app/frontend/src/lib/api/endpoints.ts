@@ -10,9 +10,11 @@ import type {
   AppStatusResponse,
   AppSummary,
   AppConfig,
+  ClusterDeleteResponse,
   ClusterRegisterRequest,
   ClusterRegisterResponse,
   ClusterSummary,
+  ClusterUpdateRequest,
   CurrentUser,
   EnvConfig,
   Environment,
@@ -90,4 +92,12 @@ export function listClusters(): Promise<ClusterSummary[]> {
 
 export function registerCluster(request: ClusterRegisterRequest): Promise<ClusterRegisterResponse> {
   return apiSend<ClusterRegisterResponse>('/cluster/register', { method: 'POST', body: request })
+}
+
+export function updateCluster(clusterId: number, request: ClusterUpdateRequest): Promise<ClusterSummary> {
+  return apiSend<ClusterSummary>(`/cluster/${clusterId}`, { method: 'PUT', body: request })
+}
+
+export function deleteCluster(clusterId: number): Promise<ClusterDeleteResponse> {
+  return apiSend<ClusterDeleteResponse>(`/cluster/${clusterId}`, { method: 'DELETE' })
 }

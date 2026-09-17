@@ -155,7 +155,7 @@ async function toApiError(response: Response): Promise<ApiError> {
   return new ApiError(response.status, code, message, details)
 }
 
-/** Convenience wrapper for JSON POST/DELETE calls. */
-export function apiSend<T>(path: string, options: RequestOptions & { method: 'POST' | 'DELETE' }): Promise<T> {
+/** Convenience wrapper for JSON POST/PUT/DELETE calls. */
+export function apiSend<T>(path: string, options: RequestOptions & { method: 'POST' | 'PUT' | 'DELETE' }): Promise<T> {
   return apiFetch<T>(path, options)
 }

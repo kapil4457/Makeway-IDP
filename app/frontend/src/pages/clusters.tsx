@@ -6,6 +6,8 @@
 import { motion } from 'framer-motion'
 import { KeyRound, RefreshCw, Server, ShieldCheck } from 'lucide-react'
 
+import { DeleteClusterDialog } from '@/components/clusters/delete-cluster-dialog'
+import { EditClusterSheet } from '@/components/clusters/edit-cluster-sheet'
 import { RegisterClusterSheet } from '@/components/clusters/register-cluster-sheet'
 import { EnvironmentChip } from '@/components/status/env-chip'
 import { Badge } from '@/components/ui/badge'
@@ -107,6 +109,8 @@ export function ClustersPage() {
                     <div className="flex shrink-0 items-center gap-1.5">
                       <PresenceBadge present={cluster.hasToken} label="Token" icon={<KeyRound className="size-3" />} />
                       <PresenceBadge present={cluster.hasCaCert} label="CA" icon={<ShieldCheck className="size-3" />} />
+                      <EditClusterSheet cluster={cluster} />
+                      <DeleteClusterDialog cluster={cluster} />
                     </div>
                   </CardHeader>
                 </Card>

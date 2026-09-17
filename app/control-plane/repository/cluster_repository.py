@@ -42,3 +42,8 @@ class ClusterRepository:
         self.session.refresh(cluster)
 
         return cluster
+
+    def delete(self, cluster: Cluster) -> None:
+        """Hard-delete a deregistered cluster. Commits, like ``create``."""
+        self.session.delete(cluster)
+        self.session.commit()

@@ -9,7 +9,14 @@ import { useMutation, useQuery, useQueryClient, type UseQueryOptions } from '@ta
 
 import * as api from '@/lib/api/endpoints'
 import { ApiError } from '@/lib/api/client'
-import type { AppConfig, ClusterRegisterRequest, CurrentUser, EnvConfig, Environment } from '@/lib/api/types'
+import type {
+  AppConfig,
+  ClusterRegisterRequest,
+  ClusterUpdateRequest,
+  CurrentUser,
+  EnvConfig,
+  Environment,
+} from '@/lib/api/types'
 import { getSessionSnapshot } from '@/lib/auth/session'
 
 const fiveMinutes = 5 * 60 * 1000
@@ -98,6 +105,22 @@ export function useDeleteApp(appName: string) {
     // The app row is gone — only the list is left to refresh; the detail
     // query is abandoned (the dialog navigates away on success).
     onSuccess: () => invalidate([['apps']]),
+  })
+}
+
+export function useUpdateCluster(clusterId: number) {
+  const invalidate = useInvalidator()
+  return useMutation({
+    mutationFn: (request: ClusterUpdateRequest) => api.updateCluster(clusterId, request),
+    onSuccess: () => invalidate([['clusters']]),
+  })
+}
+
+export function useDeleteCluster() {
+  const invalidate = useInvalidator()
+  return useMutation({
+    mutationFn: (clusterId: number) => api.deleteCluster(clusterId),
+    onSuccess: () => invalidate([['clusters']]),
   })
 }
 
