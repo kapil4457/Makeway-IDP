@@ -11,4 +11,4 @@ spec:
     spec:
       containers:
         - name: test-svc
-          image: makeway-placeholder/test-svc:pending-first-build
+          image: kapil4457/makeway-apps:test-svc-e9c9de8118095037da33eb9ef8eed69d4accb4ff
