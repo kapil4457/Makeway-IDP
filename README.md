@@ -273,49 +273,196 @@ This is deliberate: a Terraform plan has to be seen by a human before it touches
 
 ---
 
-## Getting started
+## Local prerequisites and setup
 
-### 1. Clusters and GitOps (one-time bootstrap)
+Everything between an empty AWS account + a laptop and a working platform, in dependency order. Each step links to the owning component guide for the deep detail — this page is the ordered path. The dependencies that make the order non-negotiable:
 
-The raw infrastructure is Terraform (`terraform/BOOTSTRAP.md` → `terraform/README.md`). The platform is **one cluster per environment** (qa/uat/prod); each cluster-side platform component set is applied once by hand, then ArgoCD keeps it live. Bootstrap once per cluster:
+- The platform root writes the SSM `/makeway/platform/vpc` parameters the Crossplane compositions read → **account bootstrap (2) before any XR apply**.
+- ArgoCD Applications land only on an installed ArgoCD → **ArgoCD (6) before the per-cluster bundle**.
+- The Step-2 worker applies XRs through the registered cluster endpoint → **tunnel + registration (7–8) before creating an app**.
+- Terraform CI deploys assume the OIDC role → **bootstrap root (2) before the first `deploy-infra` run**.
 
-```bash
-# Install ArgoCD itself (Helm), then the cluster-side platform stack.
-# On clusters that predate the split, first remove the old global set:
-#   kubectl delete applicationset makeway-apps -n argocd
+### 0. Tooling
 
-# Crossplane core + providers (see crossplane/README.md)
+| Tool | Why it's needed |
+|---|---|
+| AWS CLI v2 | every `aws` call; account bootstrap |
+| Session Manager plugin | the RDS tunnel (`scripts/tunnel-rds.sh`) runs an SSM port-forward session |
+| Terraform `~> 1.15` | account + platform bootstrap |
+| kubectl + Helm 3 | cluster-side platform components |
+| kind (or k3d) | the local cluster — anything whose kube-apiserver is reachable at `https://127.0.0.1:6443` |
+| Node.js | `npx localtunnel` fronts the kube-apiserver |
+| Python 3 + venv | the control plane |
+
+### 1. AWS login — the `makeway` profile
+
+All local AWS calls run under the `makeway` profile (`~/.aws/config`):
+
+```sh
+aws login --profile makeway                       # opens the login flow, caches the session
+aws sts get-caller-identity --profile makeway     # verify who you are
+```
+
+- The login session is **short-lived** (~25 min). Re-run `aws login` whenever a call returns an expired-token/`RequestExpired` error.
+- Commands that consume env credentials (SSM tunnel, Terraform, boto3 probes) read a fresh export after each login:
+
+  ```sh
+  export $(aws configure export-credentials --profile makeway --format env | tr -d '\r' | xargs)
+  ```
+
+- A long `terraform apply` can outlive a token — the write-temporary-credentials-then-remove pattern is in [terraform/BOOTSTRAP.md](terraform/BOOTSTRAP.md) (step 4).
+
+### 2. AWS account bootstrap (first time, Terraform)
+
+Full runbook: [terraform/BOOTSTRAP.md](terraform/BOOTSTRAP.md).
+
+1. **State bucket** — Terraform cannot create its own backend: create the `makeway-remote-backend` S3 bucket and enable versioning.
+2. **GitHub OIDC identity** (own Terraform root + own state, so a platform teardown can never take CI down): fetch the immutable owner/repo IDs via `https://api.github.com/repos/<owner>/<repo>` (`.owner.id`, `.id`), put them into the gitignored `terraform/bootstrap/terraform.tfvars`, then `terraform init/validate/plan/apply` in `terraform/bootstrap/`. Creates the OIDC provider + the `github-actions-terraform` role — nothing else.
+3. **Platform root** — `cd terraform && terraform init/validate/plan/apply`: VPC, SQS `makeway-requests` + DLQ, ALB, RDS, ECS, bastion, the worker Lambdas + state machine. This also writes the SSM `/makeway/platform/vpc` placement parameters the Crossplane compositions consume.
+4. **GitHub Actions wiring** (browser, Settings → Secrets and variables → Actions): secret `AWS_ROLE_ARN` (= `cd terraform/bootstrap && terraform output github_actions_role_arn`), variable `AWS_REGION`, plus the kube + Docker Hub set from the [configuration reference](#configuration-reference).
+5. From here on, infra deploys run through the **`deploy-infra` workflow** (OIDC, `makeway-infra-deploy` approval gate) — not local applies.
+
+### 3. IAM identities
+
+The registry (scope + actions per account) lives in [docs/design/AWS-Service-Accounts.md](docs/design/AWS-Service-Accounts.md). Three identities are created by hand:
+
+1. **`makeway-crossplane`** — what the Crossplane provider authenticates as. `aws iam create-user` + `aws iam create-access-key` (the secret is shown once), then the scoped policy set: inline RDS/S3/SQS/SNS + SecretsManager actions on exact ARNs, plus the `makeway-crossplane-app-build` managed policy. Exact policy documents in [crossplane/README.md](crossplane/README.md); the key lands in `crossplane/secrets/provider-creds.yaml` (step 5).
+2. **`makeway-sa`** — control plane → SQS. Scoped to exactly the `makeway-requests` queue (+ DLQ): `SendMessage(Batch)`, `GetQueueUrl`, `ReceiveMessage`, `DeleteMessage`, `ChangeMessageVisibility`. Keys go into the gitignored `app/control-plane/.env` (step 11).
+3. **ESO store keys** — static keys scoped to `secretsmanager:GetSecretValue` on the `makeway/*` prefix; land in `argocd/external-secrets/aws-credentials.yaml` (step 6).
+
+The GitHub PAT is not an IAM user — it is seeded into Secrets Manager (step 9). The per-capability IAM users (`makeway-{app}-{env}-{slug}`) are created automatically by the Step-2 worker, never by hand.
+
+### 4. Local Kubernetes cluster
+
+The only hard requirement: the kube-apiserver must be reachable at **`https://127.0.0.1:6443`** — the public tunnel fronts exactly that port. With kind:
+
+```yaml
+# kind-config.yaml
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+networking:
+  apiServerPort: 6443
+```
+
+```sh
+kind create cluster --name makeway --config kind-config.yaml
+kubectl cluster-info
+```
+
+### 5. Crossplane
+
+```sh
 helm upgrade --install crossplane --namespace crossplane-system \
   --create-namespace crossplane-stable/crossplane
-kubectl apply -f crossplane/providers/aws.yaml
-kubectl apply -f crossplane/secrets/provider-creds.yaml   # bootstrap creds, gitignored
+kubectl apply -f crossplane/providers/aws.yaml              # provider packages + composition Function
+kubectl apply -f crossplane/secrets/provider-creds.yaml     # bootstrap-only creds (gitignored)
+```
 
-# ESO credential Secret (bootstrap-only, see argocd/external-secrets/README.md)
-kubectl apply -n external-secrets -f aws-credentials.yaml   # bootstrap creds, gitignored
+`provider-creds.yaml` carries the `makeway-crossplane` access key as the provider Secret the ProviderConfig references — fill it in locally, never commit it. How capabilities expand into AWS resources: [crossplane/README.md](crossplane/README.md).
 
-# ONE per-cluster bundle: crossplane App + ESO install/store Apps + the
-# env-scoped ApplicationSet for THIS cluster (qa/uat/prod).
+### 6. ArgoCD + External Secrets Operator
+
+```sh
+# ArgoCD itself
+kubectl create namespace argocd
+kubectl apply -n argocd --server-side --force-conflicts \
+  -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+kubectl -n argocd get secret argocd-initial-admin-secret \
+  -o jsonpath="{.data.password}" | base64 -d          # one-time admin password
+kubectl port-forward svc/argocd-server -n argocd 8080:443    # UI on :8080
+
+# ONE per-cluster bundle: Crossplane config App + ESO install/store Apps +
+# the env-scoped ApplicationSet for THIS cluster (qa/uat/prod)
 kubectl apply -k argocd/clusters/<env>
+
+# ESO store credentials — seed AFTER the bundle (ESO's namespace must exist)
+cp argocd/external-secrets/aws-credentials.example.yaml argocd/external-secrets/aws-credentials.yaml
+kubectl apply -n external-secrets -f argocd/external-secrets/aws-credentials.yaml
 ```
 
-Then register the cluster (endpoint + `makeway-worker` token) in the control plane with `POST /cluster/register` (see the [Step-2 README](workers/step_functions/step_2%20-%20Infra%20Provisioning/README.md)).
+Both credential files are **bootstrap-only**: not tracked by git, deliberately excluded from the kustomization roots so ArgoCD `selfHeal` cannot clobber live credentials. The ClusterSecretStore goes Ready once the store secret lands. Detail: [argocd/external-secrets/README.md](argocd/external-secrets/README.md).
 
-### 2. Control plane
+### 7. Expose the cluster — localtunnel + the worker identity
 
-```bash
+The platform never holds a full-cluster kubeconfig. It gets a least-privilege ServiceAccount plus a long-lived token, and the apiserver is exposed over an HTTPS tunnel:
+
+```sh
+kubectl apply -f localTunnel/makeway-worker-sa.yaml     # ClusterRole + binding: namespaced XR access only
+kubectl apply -f localTunnel/makeway-worker-token.yaml  # long-lived token in crossplane-system
+kubectl get secret makeway-worker-token -n crossplane-system \
+  -o jsonpath='{.data.token}' | base64 -d               # the bearer token for steps 8–9
+```
+
+```sh
+npx localtunnel --port 6443 --local-https --allow-invalid-cert --subdomain <subdomain>
+# → https://<subdomain>.loca.lt
+curl -s https://<subdomain>.loca.lt/version -H "Bypass-Tunnel-Reminder: true"   # verify
+```
+
+Keep the subdomain **stable** — the endpoint is baked into the cluster registry and CI variables, and changing it means re-registering + a CI redeploy (procedure in [localTunnel/README.md](localTunnel/README.md)). TLS terminates at the loca.lt edge with a valid certificate; the workers see that cert, which is why `kubeCaCert` is registered empty and TLS verification stays off.
+
+### 8. Register the cluster + wire CI
+
+```sh
+curl -X POST http://localhost:8000/cluster/register \
+  -H "Authorization: Bearer <user-jwt>" -H "Content-Type: application/json" \
+  -d '{"clusterName": "makeway-prod",
+       "kubeApiEndpoint": "https://<subdomain>.loca.lt",
+       "kubeToken": "<makeway-worker token>",
+       "kubeCaCert": "",
+       "environment": "prod"}'
+```
+
+- **Idempotent by `clusterName`** — re-running updates endpoint/token/CA; `environment` (`qa`/`uat`/`prod`) is how app creation resolves each env to its cluster.
+- Then set the GitHub Actions variables/secrets — `MAKEWAY_KUBE_API_ENDPOINT` (Variable), `MAKEWAY_KUBE_TOKEN` (🔒 Secret), `MAKEWAY_KUBE_CA_CERT` (Variable, optional) — and **rerun `deploy-infra`** so the ECS control plane and the worker Lambdas pick the endpoint up. These are the fallback/default cluster values; per-env endpoint/token come from the registry above.
+
+Cluster-connectivity runbook: [Step-2 README](workers/step_functions/step_2%20-%20Infra%20Provisioning/README.md).
+
+### 9. Seed the Secrets Manager values
+
+Terraform creates the secret **containers**; the values are seeded out-of-band, once:
+
+```sh
+aws secretsmanager put-secret-value --secret-id makeway/github-pat \
+  --secret-string '<PAT with repo, workflow, read:user>'
+aws secretsmanager put-secret-value --secret-id makeway/app-repo-ci \
+  --secret-string '{"dockerhub_image":"<registry/image>","dockerhub_username":"<user>","dockerhub_token":"<dockerhub-pat>"}'
+```
+
+- Both workers read these **at runtime** — the PAT is never baked into artifacts or GitHub secrets.
+- `makeway/app-repo-ci` is warn-and-continue: absent, Step-1 still creates repos, they just need `DOCKERHUB_USERNAME`/`DOCKERHUB_TOKEN`/`GITOPS_PAT` seeded per repo by hand. Present, Step-1 injects them into every repo it creates automatically.
+- The generated app repos' `DOCKERHUB_*` / `GITOPS_PAT` therefore need no manual setup when this is seeded. Delivery chain: [docs/design/GitOps-and-CI-Pipeline.md](docs/design/GitOps-and-CI-Pipeline.md).
+
+### 10. RDS tunnel — the control-plane database from local tooling
+
+```sh
+aws login --profile makeway
+export $(aws configure export-credentials --profile makeway --format env | tr -d '\r' | xargs)
+./scripts/tunnel-rds.sh
+```
+
+Opens an SSM port-forward session through the bastion (tag `Name=makeway-bastion`) to the RDS instance: **RDS 5432 → local 127.0.0.1:5432**. Requires the Session Manager plugin (step 0) and a free local 5432 (kill any dev Postgres squatting on it first). The endpoint defaults to the platform RDS (terraform output `control_plane_db_endpoint`); override with `RDS_ENDPOINT=…`.
+
+### 11. Run the control plane
+
+```sh
 cd app/control-plane
-. .venv/Scripts/activate              # Windows (Linux/macOS: source .venv/bin/activate)
-uvicorn main:app --reload             # DATABASE_URL from .env
+python -m venv .venv && source .venv/Scripts/activate   # Windows (Linux/macOS: source .venv/bin/activate)
+pip install -r requirements.txt
+alembic upgrade head                                    # migrations (see migrations/README.md)
+uvicorn main:app --reload
 ```
 
-Bootstrap a team and users with the operational scripts (see `app/control-plane/scripts/README.md`):
+`app/control-plane/.env` (gitignored — values never in git): `DATABASE_URL` (a local Postgres, or the tunneled RDS DSN from step 10), the `makeway-sa` keys (`AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` / `AWS_REGION`), `APP_CREATION_QUEUE_URL` (`aws sqs get-queue-url --queue-name makeway-requests`), `SQS_REGION`, `INTERNAL_API_KEY`, `JWT_SECRET_KEY`. The full env map is in the [configuration reference](#configuration-reference); the service-account keys override any login-session profile, and the server must be restarted after `.env` edits.
+
+Bootstrap the team and users (see `app/control-plane/scripts/README.md`):
 
 ```bash
 python -m scripts.create_team --team-name orders \
   --owner-email admin@example.com --members dev@example.com
 ```
 
-### 3. Create an app
+### 12. Create an app
 
 ```bash
 curl -X POST http://localhost:8000/app/create \
