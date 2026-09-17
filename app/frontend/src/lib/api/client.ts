@@ -46,7 +46,7 @@ export class ApiError extends Error {
 }
 
 interface RequestOptions {
-  method?: 'GET' | 'POST' | 'DELETE'
+  method?: 'GET' | 'POST' | 'PUT' | 'DELETE'
   body?: unknown
   /** Set false for calls that legitimately return 401 (POST /auth/login). */
   handleAuth?: boolean
