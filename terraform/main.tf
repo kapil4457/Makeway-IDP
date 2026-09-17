@@ -70,7 +70,7 @@ data "aws_ami" "amazon_linux_2023_arm64" {
   owners      = ["amazon"]
 
   filter {
-    name   = "name"
+    name = "name"
     # "2*" excludes the al2023-ami-minimal-* variant: AWS publishes it with the
     # SAME CreationDate as the standard AMI, so most_recent tie-breaks onto it —
     # and the minimal AMI ships without SSM-agent/EIC plumbing (instance boots,
@@ -419,11 +419,15 @@ resource "aws_iam_policy" "control_plane_sqs" {
 module "ecs" {
   source = "./modules/ecs"
 
-  name             = var.ecs_cluster_name
-  service_name     = var.ecs_service_name
-  region           = var.region
-  vpc_id           = module.vpc.vpc_id
-  subnet_ids       = module.vpc.private_subnet_ids
+  name         = var.ecs_cluster_name
+  service_name = var.ecs_service_name
+  region       = var.region
+  vpc_id       = module.vpc.vpc_id
+  # The ASG's container instances host both services' task ENIs, and the ALB
+  # only reaches AZs it attaches to — instances must live in the private
+  # subnets of the ALB's AZs, or a ui task there fails ELB health checks in a
+  # loop (Target.NotInUse). RDS still spans all three AZs via its subnet group.
+  subnet_ids       = module.vpc.alb_reachable_private_subnet_ids
   container_image  = var.ecs_image
   target_group_arn = null # fully private — the ALB fronts the UI task below
 
