@@ -11,4 +11,4 @@ spec:
     spec:
       containers:
         - name: agentic-ai
-          image: makeway-placeholder/agentic-ai:pending-first-build
+          image: kapil4457/makeway-apps:agentic-ai-67596e8eb23a9218334e66eadc6e1a6693544268
