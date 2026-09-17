@@ -18,7 +18,5 @@ resources:
   - namespace.yaml
   - ../../base
   - ../../apps/test-svc
-  - external-secrets/storage-external-secret.yaml
 patches:
-  - path: inject/storage-env.yaml
   - path: test-svc-patch.yaml
