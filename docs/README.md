@@ -42,7 +42,7 @@ the detailed, code-verified reference for each part of the system.
 | External Secrets Operator | [argocd/external-secrets/README.md](../argocd/external-secrets/README.md) | The secret-delivery bootstrap: ClusterSecretStore, install Applications, EKS migration path. |
 | Terraform | [terraform/README.md](../terraform/README.md) | Root/bootstrap layout, state model, module catalogue, platform CI/CD. |
 | └ First-time bootstrap | [terraform/BOOTSTRAP.md](../terraform/BOOTSTRAP.md) | From an empty AWS account: state bucket, OIDC identity, first apply, GitHub secrets. |
-| Cluster tunnel (dev) | [localTunnel/README.md](../localTunnel/README.md) | Command-first runbook for exposing a local cluster's kube-apiserver. |
+| Cluster tunnel (dev) | [localTunnel/README.md](../localTunnel/README.md) | Command-first runbook for exposing a local cluster's kube-apiserver: the loca.lt relay, plus the [bastion reverse tunnel](../localTunnel/bastion-tunnel.md) alternative (in-VPC path, stable endpoint, workers-only reachability). |
 
 ## Diagrams — `docs/diagrams/`
 

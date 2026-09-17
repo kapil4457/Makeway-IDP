@@ -17,6 +17,11 @@ The full walkthrough (including the RBAC explanation) also lives in
 [workers/step_functions/step_2 - Infra Provisioning/README.md](../workers/step_functions/step_2%20-%20Infra%20Provisioning/README.md);
 this doc is the command-first runbook.
 
+> **Alternative:** the [bastion reverse tunnel](bastion-tunnel.md) replaces
+> the public relay with an SSH `-R` forward through the platform's bastion —
+> workers-only reachability, a stable private-IP endpoint, and no third-party
+> TLS terminator. Same local cluster, same RBAC and token.
+
 ---
 
 ## 1. Start the tunnel
