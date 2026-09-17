@@ -263,14 +263,17 @@ m._control_plane = lambda method, path, payload=None: {
 }
 m._account_id = lambda: "123456789012"
 skip = m._apply(1, 1, None, {})
-check("apply skip keys", set(skip) == {"status", "reason", "request_id", "job_id", "attempt"}, str(skip))
+check("apply skip keys", set(skip) == {"status", "reason", "request_id", "job_id", "attempt", "reported"}, str(skip))
 check("apply skip attempt == 1", skip.get("attempt") == 1)
+check("apply skip seeds reported", skip.get("reported") == {})
 
 # 10. check's return contract — "Step2 Ready?" reads $.ready, "Step2 Attempt?"
-#     reads $.attempt, and Step2 Retry does States.MathAdd($.attempt, 1).
+#     reads $.attempt, and Step2 Retry does States.MathAdd($.attempt, 1);
+#     "Step2 Retry" carries $.reported back into the next Check payload.
 chk = m._check(7, 9, None, {"attempt": 3})
-check("check keys", set(chk) == {"ready", "pending", "attempt", "request_id", "job_id"}, str(chk))
+check("check keys", set(chk) == {"ready", "pending", "attempt", "request_id", "job_id", "reported"}, str(chk))
 check("check ready + attempt passthrough", chk["ready"] is True and chk["attempt"] == 3)
+check("check no caps -> empty reported", chk["reported"] == {})
 
 # 10b. report_failed — the attempt-budget timeout's terminal report. The
 #      Wait/Check loop's check action deliberately never reports (it retries),
@@ -305,6 +308,107 @@ m._control_plane = lambda method, path, payload=None: {  # restore the shared st
     "app": {"appName": "order-service"},
     "capabilities": [],
 }
+
+# 10c. Progressive per-capability reporting — check flips each capability to
+#      success as its XR goes Ready+Synced, posts only when the snapshot
+#      changes (delta key threaded via `reported`), excludes teardown
+#      targets, and a failed progress report never fails the check itself.
+_prog_orig = {n: getattr(m, n) for n in ("_control_plane", "_claims_for", "_claim_kube", "_claim_kind", "_kube_get")}
+_prog_caps = [
+    {"capabilityId": 11, "capabilityType": "rel_database", "environment": "qa", "config": {"name": "db"}},
+    {"capabilityId": 12, "capabilityType": "storage", "environment": "qa", "config": {"name": "bucket"}},
+]
+_prog_details = {
+    "requestType": "create_app",
+    "rawRequest": {},
+    "app": {"appName": "order-service"},
+    "capabilities": _prog_caps,
+}
+_READY_BODY = {"status": {"conditions": [
+    {"type": "Ready", "status": "True"},
+    {"type": "Synced", "status": "True"},
+]}}
+_prog_xr: dict[str, tuple] = {}  # claim_name -> (http status, body)
+_pcap: list = []
+_prog_fail = [False]
+
+
+def _prog_cp(method, path, payload=None):
+    if method == "GET":
+        return _prog_details
+    _pcap.append(payload)
+    if _prog_fail[0]:
+        raise RuntimeError("control plane down")
+    return {}
+
+
+m._control_plane = _prog_cp
+m._claims_for = lambda app_name, cap, account_id: [
+    {"claim_name": "xr-%s" % cap["capabilityId"], "namespace": "order-service-qa"}
+]
+m._claim_kube = lambda claim: (None, None, None)
+m._claim_kind = lambda claim: "RelationalDatabase"
+m._kube_get = lambda path, name, **kw: _prog_xr.get(name, (200, {"status": {"conditions": []}}))
+
+# Poll 1: cap 12 already Ready+Synced, cap 11 not — first snapshot posts both.
+_prog_xr["xr-12"] = (200, _READY_BODY)
+chk1 = m._check(7, 9, "arn:prog", {"attempt": 1})
+check("progress poll1 posts once",
+      len(_pcap) == 1 and _pcap[0]["status"] == "in_progress"
+      and _pcap[0]["capabilities"] == [
+          {"capabilityId": 11, "status": "in_progress"},
+          {"capabilityId": 12, "status": "success"},
+      ], str(_pcap))
+check("progress poll1 reported", chk1["reported"] == {"11": "in_progress", "12": "success"}, str(chk1))
+check("progress poll1 not ready", chk1["ready"] is False)
+
+# Poll 2: nothing changed + reported threaded back -> no post.
+chk2 = m._check(7, 9, "arn:prog", {"attempt": 2, "reported": chk1["reported"]})
+check("progress poll2 delta-suppressed", len(_pcap) == 1, str(len(_pcap)))
+check("progress poll2 reported stable", chk2["reported"] == chk1["reported"])
+
+# Poll 3: cap 11 flips Ready+Synced -> one post, both success, loop ready.
+_prog_xr["xr-11"] = (200, _READY_BODY)
+chk3 = m._check(7, 9, "arn:prog", {"attempt": 3, "reported": chk2["reported"]})
+check("progress poll3 posts flip",
+      len(_pcap) == 2 and _pcap[1]["capabilities"] == [
+          {"capabilityId": 11, "status": "success"},
+          {"capabilityId": 12, "status": "success"},
+      ], str(_pcap))
+check("progress poll3 ready", chk3["ready"] is True and chk3["reported"] == {"11": "success", "12": "success"}, str(chk3))
+
+# A failed progress report is swallowed — provisioning state is unaffected.
+_prog_fail[0] = True
+_prog_xr["xr-12"] = (200, {"status": {"conditions": []}})  # transient regression
+chk4 = m._check(7, 9, "arn:prog", {"attempt": 4, "reported": chk3["reported"]})
+check("progress report failure swallowed",
+      chk4["ready"] is False and chk4["reported"] == {"11": "success", "12": "in_progress"},
+      str(chk4))
+_prog_fail[0] = False
+
+# Teardown targets never appear in the snapshot: an update removing cap 11's
+# (env, type) pair reports only the kept capability (and its 404 keeps
+# nothing pending).
+_prog_details = {
+    "requestType": "update_app",
+    "rawRequest": {
+        "app_name": "order-service",
+        "updates": [{"env": "qa", "remove_capabilities": ["rel_database"]}],
+    },
+    "app": {"appName": "order-service"},
+    "capabilities": _prog_caps,
+}
+_prog_xr.clear()
+_prog_xr["xr-11"] = (404, None)  # removal target already gone
+_prog_xr["xr-12"] = (200, _READY_BODY)
+chk5 = m._check(7, 9, "arn:prog", {"attempt": 5, "reported": {}})
+check("progress excludes removed caps",
+      chk5["ready"] is True and chk5["reported"] == {"12": "success"} and len(_pcap) == 4,
+      str(chk5) + " / posts=" + str(len(_pcap)))
+
+for n, fn in _prog_orig.items():
+    setattr(m, n, fn)
+_pcap.clear()
 
 # 11. _gone — teardown readiness: only a 404 means the object is gone; any
 #     other status (a live object, a transient API error) keeps it pending.

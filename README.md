@@ -491,6 +491,58 @@ curl -X POST http://localhost:8000/app/create \
 
 From there, everything else happens on its own: the state machine runs, ArgoCD syncs, Crossplane provisions, ESO materializes the secrets, and your services meet the cluster exactly once (when the image tag CI wrote for them rolls off ArgoCD's deck).
 
+### 13. Remove an app — manual teardown of a namespace
+
+Tear the layers down in this order. The top of the order is not negotiable: Crossplane composes managed resources **from XR instances**, so while any XR instance is alive, every managed resource you delete is re-created within seconds.
+
+**1. Delete the XR instances first** — they are the composition's input; deleting them makes Crossplane garbage-collect every composed managed resource and its AWS backing (RDS instance + subnet group + security group, S3 bucket, SQS queue + DLQ, SNS topic):
+
+```sh
+kubectl delete relationaldatabases,objectstorages,messagequeues,notificationtopics \
+  --all -n <app>-<env>
+
+kubectl get managed | grep <app>        # wait until empty — finalizer cleared = AWS resource deleted
+```
+
+RDS teardown is the slow path (several minutes); the rest clears in under a minute. Never delete the AWS resources by hand while the managed resources exist — the reconcilers re-create what they think is missing.
+
+Do **not** drop the GitOps overlay before the XRs are gone: once the namespace enters `Terminating`, namespace admission rejects the provider's connection-bookkeeping writes into it, and a managed resource whose connection is not cached can then never finish deleting (finalizer hang).
+
+**2. Remove the GitOps app.** Delete `argocd/apps/<app>/` from the platform repo and push. The env-scoped ApplicationSet drops the Application, and ArgoCD cascades everything it managed: the deployments, services, ExternalSecrets, and the namespace itself (`envs/<env>/namespace.yaml` is part of the app overlay). Any leftover non-managed Secret in the namespace goes with it.
+
+**3. Purge the catalog rows.** With the tunnel from step 10 open, delete the app's rows from the control-plane database in foreign-key order — children before parents, scoped by anchors captured up front so no other app's rows are touched:
+
+```sql
+BEGIN;
+CREATE TEMP TABLE _svc AS SELECT "svcId" FROM service
+  WHERE "appId" = (SELECT "appId" FROM app WHERE "appName" = '<app>');
+CREATE TEMP TABLE _cap AS SELECT ca."capabilityId" FROM capabilityaccess ca
+  JOIN _svc s ON s."svcId" = ca."serviceId";
+CREATE TEMP TABLE _req AS SELECT "requestId" FROM request
+  WHERE "appId" = (SELECT "appId" FROM app WHERE "appName" = '<app>');
+
+DELETE FROM job                   WHERE "requestId" IN (SELECT "requestId" FROM _req)
+                                     OR "capabilityId" IN (SELECT "capabilityId" FROM _cap)
+                                     OR "deploymentSetupId" IN (SELECT "deploymentSetupId" FROM deploymentsetup WHERE "serviceId" IN (SELECT "svcId" FROM _svc));
+DELETE FROM infrarequirement      WHERE "capabilityId" IN (SELECT "capabilityId" FROM _cap);
+DELETE FROM capabilityaccess      WHERE "serviceId" IN (SELECT "svcId" FROM _svc)
+                                     OR "capabilityId" IN (SELECT "capabilityId" FROM _cap);
+DELETE FROM accessbinding         WHERE "serviceId" IN (SELECT "svcId" FROM _svc)
+                                     OR "namespaceId" IN (SELECT "namespaceId" FROM namespace WHERE "serviceId" IN (SELECT "svcId" FROM _svc));
+DELETE FROM networkisolationrule  WHERE "namespaceId" IN (SELECT "namespaceId" FROM namespace WHERE "serviceId" IN (SELECT "svcId" FROM _svc));
+DELETE FROM namespace             WHERE "serviceId" IN (SELECT "svcId" FROM _svc);
+DELETE FROM capability            WHERE "capabilityId" IN (SELECT "capabilityId" FROM _cap);
+DELETE FROM deploymentsetup       WHERE "serviceId" IN (SELECT "svcId" FROM _svc);
+DELETE FROM request               WHERE "requestId" IN (SELECT "requestId" FROM _req);
+DELETE FROM service               WHERE "svcId" IN (SELECT "svcId" FROM _svc);
+DELETE FROM app                   WHERE "appId" = (SELECT "appId" FROM app WHERE "appName" = '<app>');
+COMMIT;
+```
+
+Re-running the three `CREATE TEMP TABLE` queries after `COMMIT` should return zero rows.
+
+**4. Delete the services monorepo.** The `<appName>` repo on GitHub is not managed by anything in the platform — remove it in the browser (Settings → Danger Zone).
+
 ---
 
 ## Configuration reference

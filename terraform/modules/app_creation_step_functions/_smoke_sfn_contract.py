@@ -56,6 +56,11 @@ def _rendered_definition(source: str) -> dict:
     if block is None:
         raise AssertionError("unbalanced jsonencode( block")
 
+    # HCL interpolation inside string values (${var.x} renders at plan time):
+    # neutralise it before the ref-token guard below, which would otherwise
+    # (correctly, but unhelpfully) refuse to parse the string.
+    block = re.sub(r"\$\{[^{}]*\}", "__INTERP__", block)
+
     # Terraform refs -> inert string scalars, BEFORE the scan (the scanner's
     # bareword handling would otherwise split e.g. aws_lambda_function.step1.arn
     # into fragments). Guard: refuse if any string VALUE contains a ref token,

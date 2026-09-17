@@ -927,6 +927,10 @@ def _apply(request_id: int, job_id: int, execution_arn: str | None, event: dict)
             "request_id": request_id,
             "job_id": job_id,
             "attempt": 1,
+            # Seeds the Check loop's progressive-report delta key — the Check
+            # payload references $.reported and SFN Parameters on a missing
+            # path fail the execution.
+            "reported": {},
         }
 
     _report(request_id, job_id, "in_progress", execution_arn)
@@ -970,6 +974,8 @@ def _apply(request_id: int, job_id: int, execution_arn: str | None, event: dict)
         "deleted": deleted,
         # Seeds the state-machine Check loop's attempt counter (see the ASL).
         "attempt": 1,
+        # Seeds the Check loop's progressive-report delta key (see the ASL).
+        "reported": {},
     }
 
 
@@ -996,8 +1002,10 @@ def _check(request_id: int, job_id: int, execution_arn: str | None, event: dict)
     removed = _removed_capability_keys(details)
 
     pending = []
+    cap_ready: dict[str, bool] = {}  # str(capabilityId) -> every claim Ready+Synced
     for cap in details.get("capabilities") or []:
         is_removed = _capability_is_removed(cap, removed)
+        cap_ok = True
         for claim in _claims_for(app_name, cap, account_id):
             kind = _claim_kind(claim)
             # XR kinds are CamelCase ("RelationalDatabase"); the API plural is
@@ -1020,9 +1028,11 @@ def _check(request_id: int, job_id: int, execution_arn: str | None, event: dict)
                 continue
             if status == 404:
                 pending.append(claim["claim_name"])
+                cap_ok = False
                 continue
             if not 200 <= status < 300:
                 pending.append(claim["claim_name"])
+                cap_ok = False
                 logger.warning(
                     "check %s/%s -> HTTP %s (treated as not ready)",
                     claim["namespace"],
@@ -1033,6 +1043,9 @@ def _check(request_id: int, job_id: int, execution_arn: str | None, event: dict)
             ready, synced = _claim_status(body)
             if not (ready and synced):
                 pending.append(claim["claim_name"])
+                cap_ok = False
+        if not is_removed and cap.get("capabilityId") is not None:
+            cap_ready[str(cap["capabilityId"])] = cap_ok
 
     logger.info(
         "check request_id=%s attempt=%s pending=%s",
@@ -1040,12 +1053,44 @@ def _check(request_id: int, job_id: int, execution_arn: str | None, event: dict)
         attempt,
         pending,
     )
+
+    # Progressive per-capability reporting: flip each capability to success as
+    # soon as its XR is Ready+Synced, so the UI shows capabilities completing
+    # one by one instead of everything flipping at the final report. The
+    # snapshot threads back in through `reported` (seeded {} by apply, carried
+    # by the Retry Pass — see the ASL), so an unchanged poll posts nothing.
+    # A failed progress report must never fail provisioning — the terminal
+    # report after extract is the authoritative one.
+    snapshot = {
+        capability_id: ("success" if ready else "in_progress")
+        for capability_id, ready in cap_ready.items()
+    }
+    if snapshot and snapshot != (event.get("reported") or {}):
+        try:
+            _report(
+                request_id,
+                job_id,
+                "in_progress",
+                execution_arn,
+                capabilities=[
+                    {"capabilityId": int(capability_id), "status": status}
+                    for capability_id, status in snapshot.items()
+                ],
+            )
+        except Exception as report_error:  # noqa: BLE001
+            logger.warning(
+                "failed to report check progress for request_id=%s: %s",
+                request_id,
+                report_error,
+            )
+
     return {
         "ready": not pending,
         "pending": pending,
         "attempt": attempt,
         "request_id": request_id,
         "job_id": job_id,
+        "reported": snapshot,
     }
 
 

@@ -413,6 +413,10 @@ resource "aws_sfn_state_machine" "app_creation" {
             "job_id.$"        = "$.job_id"
             "execution_arn.$" = "$$.Execution.Id"
             "attempt.$"       = "$.attempt"
+            # Progressive-report delta key: the last per-capability snapshot
+            # check posted (seeded {} by apply, carried by Step2 Retry below)
+            # — an unchanged poll posts no progress report.
+            "reported.$" = "$.reported"
           }
         }
         # Unwrap the SDK InvokeResponse — see Step1 GitHub Setup. The Ready? /
@@ -466,6 +470,8 @@ resource "aws_sfn_state_machine" "app_creation" {
           "request_id.$" = "$.request_id"
           "job_id.$"     = "$.job_id"
           "attempt.$"    = "States.MathAdd($.attempt, 1)"
+          # Carry the last-reported capability snapshot back into Step2 Check.
+          "reported.$" = "$.reported"
         }
         Next = "Step2 Wait"
       }
