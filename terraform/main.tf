@@ -308,6 +308,18 @@ resource "aws_security_group" "bastion" {
   }
 }
 
+# kube-apiserver reverse tunnel: the workers reach the 6443 bind that the
+# laptop's SSH -R forward leaves on the bastion (localTunnel/bastion-tunnel.md).
+# Scoped to the workers' security group — never open to the internet.
+resource "aws_security_group_rule" "bastion_kubeapi_from_workers" {
+  type                     = "ingress"
+  security_group_id        = aws_security_group.bastion.id
+  from_port                = 6443
+  to_port                  = 6443
+  protocol                 = "tcp"
+  source_security_group_id = aws_security_group.workers.id
+}
+
 resource "aws_iam_role" "bastion" {
   name = "makeway-bastion"
   assume_role_policy = jsonencode({

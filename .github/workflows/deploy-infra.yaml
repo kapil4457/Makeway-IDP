@@ -126,12 +126,27 @@ jobs:
           test -n "$MAKEWAY_KUBE_TOKEN" \
             || { echo "::error::Set MAKEWAY_KUBE_TOKEN in repo Actions secrets"; exit 1; }
 
+      # The bastion SSH *public* key is a repo Actions variable (public keys
+      # are not secrets), but Terraform reads it via file(), so it must be
+      # staged to disk with the variable pointing at the file. Unset → the
+      # key-pair resource is skipped (count-gated), which strands the bastion
+      # reverse tunnel on a fresh deploy — see localTunnel/bastion-tunnel.md.
+      - name: Stage the bastion SSH public key
+        env:
+          BASTION_PUBKEY: ${{ vars.MAKEWAY_BASTION_SSH_PUBLIC_KEY }}
+        run: |
+          if [ -n "$BASTION_PUBKEY" ]; then
+            printf '%s\n' "$BASTION_PUBKEY" > "$RUNNER_TEMP/makeway-bastion.pub"
+            echo "TF_VAR_bastion_ssh_public_key_path=$RUNNER_TEMP/makeway-bastion.pub" >> "$GITHUB_ENV"
+          fi
+
       - name: Terraform Plan
         env:
           TF_VAR_kube_api_endpoint: ${{ vars.MAKEWAY_KUBE_API_ENDPOINT }}
           TF_VAR_kube_token: ${{ secrets.MAKEWAY_KUBE_TOKEN }}
           # Optional — empty disables TLS verification against the exposed cluster.
           TF_VAR_kube_ca_cert: ${{ vars.MAKEWAY_KUBE_CA_CERT || '' }}
+          # TF_VAR_bastion_ssh_public_key_path comes from the staging step via GITHUB_ENV.
           TF_VAR_ecs_image: ${{ steps.pin_cp.outputs.cp_image }}
           TF_VAR_frontend_image: ${{ steps.pin_ui.outputs.ui_image }}
         run: terraform plan -input=false -out=tfplan -no-color

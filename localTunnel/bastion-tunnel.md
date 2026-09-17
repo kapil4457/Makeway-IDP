@@ -18,6 +18,15 @@ kube-apiserver changes.
 | Setup cost | `npx localtunnel` only | SSH key on the bastion, one SG rule, `GatewayPorts` in sshd |
 | Common requirement | the laptop must stay awake; when it sleeps, provisioning and health sweeps fail until it's back | same |
 
+Steps at a glance:
+
+| When | What |
+|---|---|
+| Once, ever | §1 Terraform apply → §2 sshd config → §5 register |
+| Every dev session | §3 — two terminals, two commands |
+| Tunnel dropped / laptop rebooted | §3 again — the endpoint never moves, nothing to re-register |
+| Infra destroyed and re-applied | §2 (fresh instance) + §5 (new private IP) — the SG rule and key pair return with the apply itself |
+
 ## Architecture
 
 ```
@@ -39,31 +48,33 @@ listens.
 
 ## 1. One-time AWS setup (Terraform)
 
-Two SG rules and an SSH key pair; apply with the platform root:
+The platform root ships everything this tunnel needs — apply with the
+platform root:
 
-```hcl
-# localTunnel reachability for the workers only — never 0.0.0.0/0.
-resource "aws_security_group_rule" "bastion_kubeapi_from_workers" {
-  type                     = "ingress"
-  security_group_id        = aws_security_group.bastion.id
-  from_port                = 6443
-  to_port                  = 6443
-  protocol                 = "tcp"
-  source_security_group_id = aws_security_group.workers.id
-}
-```
+- `aws_security_group_rule.bastion_kubeapi_from_workers` ([main.tf](../terraform/main.tf))
+  — ingress `tcp/6443` on the bastion, scoped to the workers' security group.
+  Never widen it to the internet.
+- `aws_key_pair.bastion` — created once `bastion_ssh_public_key_path` points
+  at a public key. Where the value comes from depends on who applies:
 
-- **Key pair**: set `bastion_ssh_public_key_path` to your public key file —
-  the existing `aws_key_pair.bastion` resource picks it up (`makeway-bastion`
-  key name). [variables.tf](../terraform/variables.tf) documents the variable.
-- **SSH reachability for the laptop** (only if you use direct SSH, option A
-  below): ingress `tcp/22` on `aws_security_group.bastion` restricted to your
-  current IP (`<laptop-ip>/32`). With the SSM-brokered variant (option B) no
-  22 rule is needed and the bastion's "reached only via SSM" design holds.
-- **Public IP**: the bastion lives in a `map_public_ip_on_launch` subnet, so
-  it has an auto-assigned public IP — but it *changes on stop/start*. If you
-  use direct SSH, add an EIP + association for a stable SSH target. The
-  **private** IP (what the workers and the registry use) is stable regardless.
+  ```hcl
+  # local apply — terraform/terraform.tfvars (never committed)
+  bastion_ssh_public_key_path = "C:/Users/Kapil/.ssh/id_ed25519.pub"
+
+  # CI apply (deploy-infra) — repo Actions variable (an SSH *public* key is
+  # not a secret; it is safe as a plain Actions variable)
+  #   MAKEWAY_BASTION_SSH_PUBLIC_KEY = ssh-ed25519 AAAA... Kapil@LAPTOP-...
+  ```
+
+  An empty value silently skips the key pair (the resource is `count`-gated)
+  — a CI-only apply without the variable deploys a bastion the SSH leg can't
+  authenticate to.
+
+The key attaches to the instance as an in-place update — no replacement.
+Direct-SSH setups (option A in §3) additionally need ingress `tcp/22` from
+the operator's IP and an EIP for a stable target; the SSM-brokered default
+needs neither. The **private** IP — what the workers and the cluster
+registry use — is stable for the instance's lifetime either way.
 
 ## 2. One-time sshd config on the bastion
 
@@ -83,18 +94,14 @@ and does not open sshd beyond what the security group already restricts.
 
 ## 3. Start the tunnel (every dev session)
 
-On the laptop — Windows ships the OpenSSH client, so no install is needed.
-The bastion user on AL2023 is `ec2-user`.
+On the laptop — Windows ships the OpenSSH client, so no install is needed,
+and the default key (`~/.ssh/id_ed25519`) is used automatically. The bastion
+user on AL2023 is `ec2-user`.
 
-**Option A — direct SSH** (needs the 22 ingress rule + EIP):
-
-```bash
-ssh -N -R 0.0.0.0:6443:127.0.0.1:6443 ec2-user@<bastion-public-ip> \
-  -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -o ExitOnForwardFailure=yes
-```
-
-**Option B — SSM-brokered SSH** (no new ingress; two terminals):
-Terminal 1 forwards the bastion's sshd port to the laptop over SSM:
+**Default — SSM-brokered SSH** (adds no internet-facing port to the bastion;
+two terminals). Terminal 1 forwards the bastion's sshd port to the laptop
+over SSM — the same start-session used for the RDS port-forward, pointed at
+port 22:
 
 ```bash
 aws ssm start-session --target <bastion-instance-id> \
@@ -106,6 +113,14 @@ Terminal 2 tunnels through it:
 
 ```bash
 ssh -N -p 2222 -R 0.0.0.0:6443:127.0.0.1:6443 ec2-user@127.0.0.1 \
+  -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -o ExitOnForwardFailure=yes
+```
+
+**Alternative — direct SSH** (needs the `tcp/22` ingress rule from the
+operator IP and an EIP, per §1):
+
+```bash
+ssh -N -R 0.0.0.0:6443:127.0.0.1:6443 ec2-user@<bastion-public-ip> \
   -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -o ExitOnForwardFailure=yes
 ```
 
