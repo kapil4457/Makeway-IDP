@@ -1,12 +1,12 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: agentic-ai
+  name: file-service
 spec:
   template:
     spec:
       containers:
-        - name: agentic-ai
+        - name: file-service
           env:
             - name: MAKEWAY_VECTOR_DB_DATABASE_NAME
               valueFrom:
