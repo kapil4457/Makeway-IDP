@@ -6,6 +6,7 @@
 import { apiFetch, apiSend } from './client'
 import type {
   AppCreateResponse,
+  AppPurgeResponse,
   AppStatusResponse,
   AppSummary,
   AppConfig,
@@ -67,6 +68,17 @@ export function deleteAppEnv(
   return apiSend<AppCreateResponse>(
     `/app/${encodeURIComponent(appName)}/envs/${env}${confirm}`,
     { method: 'DELETE', idempotencyKey: true },
+  )
+}
+
+export function deleteApp(
+  appName: string,
+  options: { confirm?: boolean } = {},
+): Promise<AppPurgeResponse> {
+  const confirm = options.confirm ? '?confirm=true' : ''
+  return apiSend<AppPurgeResponse>(
+    `/app/${encodeURIComponent(appName)}${confirm}`,
+    { method: 'DELETE' },
   )
 }
 

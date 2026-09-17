@@ -138,6 +138,12 @@ export interface AppCreateResponse {
   status: string
 }
 
+/** camelCase on the wire (dto/response/app_purge.py). */
+export interface AppPurgeResponse {
+  appName: string
+  purged: Record<string, number>
+}
+
 // ---------------------------------------------------------------------------
 // App status (response — camelCase, dto/response/app_status.py)
 // ---------------------------------------------------------------------------

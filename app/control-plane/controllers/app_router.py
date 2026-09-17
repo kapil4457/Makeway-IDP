@@ -4,6 +4,7 @@ from core import get_logger
 from dto.configs.app_config import AppConfig
 from dto.configs.env_config import EnvConfig
 from dto.response.create_app import AppCreateResponse
+from dto.response.app_purge import AppPurgeResponse
 from dto.response.app_status import AppStatusResponse
 from dto.response.app_summary import AppSummaryResponse
 from database.models.user import User
@@ -197,6 +198,47 @@ def delete_app_env(
         env=env,
         user=current_user,
         idempotency_key=idempotency_key,
+        confirm=confirm,
+    )
+
+
+@router.delete(
+    "/{app_name}",
+    summary="Purge an app's record",
+    description=(
+        "Hard-deletes the app row and its audit trail (requests, jobs) once "
+        "every environment is gone. This is the recovery exit for the "
+        "terminal state an app reaches after all its environments are torn "
+        "down: the app can then be re-created under the same name. Only the "
+        "record is removed — the services repository on GitHub stays, and any "
+        "app that still has service rows in its desired state is rejected "
+        "(use the environment delete instead). Rejected while another request "
+        "for the app is still reconciling. Destructive and synchronous: "
+        "requires ``confirm=true``."
+    ),
+    response_model=AppPurgeResponse,
+    response_description="The app record was purged.",
+)
+def delete_app(
+    app_name: str,
+    confirm: bool = False,
+    current_user: User = Depends(get_current_user),
+    service: AppDeleteService = Depends(
+        get_app_delete_service
+        ),
+
+   ) -> AppPurgeResponse:
+    logger.info(
+        "App record purge requested",
+        extra={
+            "extra_fields": {
+                "app_name": app_name,
+            }
+        },
+    )
+    return service.purge_app(
+        app_name=app_name,
+        user=current_user,
         confirm=confirm,
     )
 

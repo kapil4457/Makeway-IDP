@@ -23,6 +23,7 @@ import {
 } from 'lucide-react'
 import { toast } from 'sonner'
 
+import { DeleteAppDialog } from '@/components/apps/delete-app-dialog'
 import { DeleteEnvDialog } from '@/components/apps/delete-env-dialog'
 import { UpdateAppSheet } from '@/components/apps/update-app-sheet'
 import { CapabilityCard, ConnectivityRow, DataSourceHint, ServiceCard } from '@/components/status/env-sections'
@@ -196,6 +197,7 @@ export function AppDetailPage() {
 
   const [updateOpen, setUpdateOpen] = useState(false)
   const [deleteOpen, setDeleteOpen] = useState(false)
+  const [purgeOpen, setPurgeOpen] = useState(false)
 
   // --- error / loading states ----------------------------------------------
 
@@ -291,12 +293,18 @@ export function AppDetailPage() {
           )}
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" disabled={!hasEnvs} onClick={() => setUpdateOpen(true)}>
+          <Button variant="outline" size="sm" onClick={() => setUpdateOpen(true)}>
             <Pencil /> Update
           </Button>
-          <Button variant="outline" size="sm" className="text-destructive hover:text-destructive" disabled={!hasEnvs} onClick={() => setDeleteOpen(true)}>
-            <Trash2 /> Remove env
-          </Button>
+          {hasEnvs ? (
+            <Button variant="outline" size="sm" className="text-destructive hover:text-destructive" onClick={() => setDeleteOpen(true)}>
+              <Trash2 /> Remove env
+            </Button>
+          ) : (
+            <Button variant="outline" size="sm" className="text-destructive hover:text-destructive" onClick={() => setPurgeOpen(true)}>
+              <Trash2 /> Delete app
+            </Button>
+          )}
         </div>
       </div>
 
@@ -333,13 +341,15 @@ export function AppDetailPage() {
       ) : (
         <div className="grid place-items-center rounded-xl border border-dashed py-16 text-center">
           <p className="text-sm text-muted-foreground">
-            No environments yet — the first reconcile request will populate them.
+            No environments yet — use <strong>Update</strong> to build one on a registered
+            environment, or <strong>Delete app</strong> to purge the record and free the name.
           </p>
         </div>
       )}
 
       <UpdateAppSheet appName={appName} status={status} open={updateOpen} onOpenChange={setUpdateOpen} />
       <DeleteEnvDialog appName={appName} status={status} open={deleteOpen} onOpenChange={setDeleteOpen} />
+      <DeleteAppDialog appName={appName} open={purgeOpen} onOpenChange={setPurgeOpen} />
     </div>
   )
 }

@@ -1,4 +1,4 @@
-from sqlmodel import Session
+from sqlmodel import Session, delete, select
 
 from core import get_logger
 from database.models.request import Request
@@ -10,6 +10,7 @@ from dto.enums.job_status import JobStatus
 from dto.enums.job_step import JobStep
 from dto.enums.request_status import RequestStatus
 from dto.enums.request_type import RequestType
+from dto.response.app_purge import AppPurgeResponse
 from dto.response.create_app import AppCreateResponse
 from exceptions.base import InvalidRequestException, NotFoundException
 from service.app_creation_queue import AppCreationQueue
@@ -151,6 +152,90 @@ class AppDeleteService:
             job_id=job.jobId,
             status="pending",
         )
+
+    def purge_app(
+        self,
+        app_name: str,
+        user: User,
+        confirm: bool = False,
+    ) -> AppPurgeResponse:
+        """Purge an app's record after every environment is gone.
+
+        The recovery exit for the zombie state: an app whose environments were
+        all torn down keeps its ``appName`` (unique) and its audit trail
+        (requests/jobs), so it can be neither updated nor re-created. This
+        deletes those rows synchronously — no pipeline run, nothing left to
+        reconcile — in FK order (jobs → requests → app). The services
+        repository on GitHub is deliberately kept: deleting it is a manual,
+        out-of-band decision.
+
+        Only the terminal state qualifies: any service row means desired state
+        still exists and must go through the environment-scoped delete first.
+        """
+        app = self._resolve_app(app_name, user)
+
+        self._reject_in_flight(app)
+
+        services = self.serviceRepository.get_by_app(app.appId)
+        if services:
+            raise InvalidRequestException(
+                message=(
+                    f"App '{app_name}' still has {len(services)} service row(s) "
+                    f"in its desired state. Delete its environments first — "
+                    f"'Delete app' only clears the record once every "
+                    f"environment is gone."
+                )
+            )
+
+        if not confirm:
+            raise InvalidRequestException(
+                message=(
+                    f"Deleting app '{app_name}' removes its record and audit "
+                    f"trail permanently; pass confirm=true to proceed."
+                )
+            )
+
+        purged = self._purge_app_rows(app)
+        self.session.commit()
+
+        logger.info(
+            "App record purged",
+            extra={
+                "extra_fields": {
+                    "app_name": app.appName,
+                    "app_id": app.appId,
+                    "purged": purged,
+                }
+            },
+        )
+        return AppPurgeResponse(appName=app.appName, purged=purged)
+
+    def _purge_app_rows(self, app: App) -> dict[str, int]:
+        """Delete the app's audit rows, children first, then the app itself.
+
+        Service-scoped tables (services, capabilities, namespaces, bindings)
+        are unreachable here: the caller guaranteed zero service rows, and
+        every one of those rows hangs off a service through a NOT NULL FK.
+        Flushed by the caller's single ``session.commit()``.
+        """
+        request_ids = list(
+            self.session.exec(
+                select(Request.requestId).where(Request.appId == app.appId)
+            ).all()
+        )
+
+        purged: dict[str, int] = {}
+        if request_ids:
+            purged["jobs"] = self.session.exec(
+                delete(Job).where(Job.requestId.in_(request_ids))
+            ).rowcount or 0
+            purged["requests"] = self.session.exec(
+                delete(Request).where(Request.requestId.in_(request_ids))
+            ).rowcount or 0
+
+        self.session.delete(app)
+        purged["app"] = 1
+        return purged
 
     def _existing_response(self, existing_request: Request) -> AppCreateResponse:
         """

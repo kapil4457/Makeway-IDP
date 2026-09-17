@@ -91,6 +91,16 @@ export function useDeleteAppEnv(appName: string) {
   })
 }
 
+export function useDeleteApp(appName: string) {
+  const invalidate = useInvalidator()
+  return useMutation({
+    mutationFn: (vars: { confirm: boolean }) => api.deleteApp(appName, { confirm: vars.confirm }),
+    // The app row is gone — only the list is left to refresh; the detail
+    // query is abandoned (the dialog navigates away on success).
+    onSuccess: () => invalidate([['apps']]),
+  })
+}
+
 export function useRegisterCluster() {
   const invalidate = useInvalidator()
   return useMutation({
