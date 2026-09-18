@@ -28,3 +28,34 @@ spec:
                 secretKeyRef:
                   name: storage
                   key: aws_access_key_id
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rag-service
+spec:
+  template:
+    spec:
+      containers:
+        - name: rag-service
+          env:
+            - name: MAKEWAY_STORAGE_ARN
+              valueFrom:
+                secretKeyRef:
+                  name: storage
+                  key: arn
+            - name: MAKEWAY_STORAGE_BUCKET_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: storage
+                  key: bucketName
+            - name: MAKEWAY_STORAGE_REGION
+              valueFrom:
+                secretKeyRef:
+                  name: storage
+                  key: region
+            - name: MAKEWAY_STORAGE_AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: storage
+                  key: aws_access_key_id
