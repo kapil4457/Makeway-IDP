@@ -20,6 +20,7 @@ resources:
   - ../../apps/rag-service
   - ../../apps/file-service
   - ../../apps/payment-service
+  - external-secrets/vector-store-external-secret.yaml
 patches:
   - path: rag-service-patch.yaml
   - path: file-service-patch.yaml
