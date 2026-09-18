@@ -21,6 +21,7 @@ resources:
   - ../../apps/file-service
   - ../../apps/payment-service
   - external-secrets/vector-store-external-secret.yaml
+  - external-secrets/storage-external-secret.yaml
 patches:
   - path: inject/vector-store-env.yaml
   - path: rag-service-patch.yaml
