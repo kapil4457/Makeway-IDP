@@ -58,7 +58,9 @@ Steps at a glance:
     `https://<bastion-private-ip>:6443` and run the **deploy-infra** workflow
     once.
 12. Repeat forever: only steps 7–8 per session. After a destroy + re-apply:
-    repeat steps 5, 6, 10, 11 only.
+    repeat steps 5, 6, 10, 11 only — plus reset the laptop's host-key record
+    for the replaced instance: `ssh-keygen -R "[127.0.0.1]:2222"` (a replaced
+    instance has a new host key; the first reconnect must re-accept it).
 
 ## Architecture
 
@@ -160,6 +162,11 @@ Terminal 2 tunnels through it:
 ssh -N -p 2222 -R 0.0.0.0:6443:127.0.0.1:6443 ec2-user@127.0.0.1 \
   -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -o ExitOnForwardFailure=yes
 ```
+
+The `--parameters` JSON is written for bash. In Windows PowerShell 5.1 the
+inner double quotes are stripped when the argument reaches the AWS CLI, so
+escape them — `'{\"portNumber\":[\"22\"],\"localPortNumber\":[\"2222\"]}'` —
+or run the command verbatim from Git Bash.
 
 **Alternative — direct SSH** (needs the `tcp/22` ingress rule from the
 operator IP and an EIP, per §1):
