@@ -22,6 +22,7 @@ resources:
   - ../../apps/payment-service
   - external-secrets/vector-store-external-secret.yaml
   - external-secrets/storage-external-secret.yaml
+  - external-secrets/transaction-queue-external-secret.yaml
 patches:
   - path: inject/storage-env.yaml
   - path: inject/vector-store-env.yaml
