@@ -253,3 +253,33 @@ authoritative; the env is only the fallback.
   CA in place.
 - Never commit `kubeconfig.yaml` or the worker token — unchanged from the
   loca.lt setup.
+
+
+
+## Steps to use bastion as tunnel for cluster
+
+```md
+LOCAL — your laptop (Git Bash): edit terraform.tfvars → replace the old line with bastion_ssh_public_key = "ssh-ed25519 AAAA... Kapil@LAPTOP-JJQKJ1VO" (full .pub line)
+
+LOCAL: commit + push the staged fixes (main.tf, variables.tf, deploy-infra.yaml, docs, client.ts).
+
+LOCAL: cd terraform && terraform apply — OR run the deploy-infra workflow on GitHub (same effect; the instance is currently destroyed, so this creates a fresh bastion WITH the key).
+
+LOCAL: get the new instance id + private IP — aws ec2 describe-instances --region us-east-1 --profile makeway --filters Name=tag:Name,Values=makeway-bastion Name=instance-state-name,Values=running --query "Reservations[].Instances[].[InstanceId,PrivateIpAddress]" --output text
+
+LOCAL: aws ssm start-session --target <new-instance-id> --region us-east-1 --profile makeway — this opens a shell INSIDE the bastion; everything you type next runs on the bastion.
+
+INSIDE THE BASTION (the shell from step 5): echo 'GatewayPorts clientspecified' | sudo tee /etc/ssh/sshd_config.d/40-gatewayports.conf && sudo systemctl restart sshd
+
+INSIDE THE BASTION: exit (leave that session open if you like, but the tunnel comes next from your laptop).
+
+LOCAL, Terminal 1: aws ssm start-session --target <new-instance-id> --document-name AWS-StartPortForwardingSession --parameters '{"portNumber":["22"],"localPortNumber":["2222"]}' --region us-east-1 --profile makeway
+
+LOCAL, Terminal 2: ssh -N -p 2222 -R 0.0.0.0:6443:127.0.0.1:6443 ec2-user@127.0.0.1 -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -o ExitOnForwardFailure=yes
+
+INSIDE THE BASTION (another SSM shell, step 5 again): ss -tlnp | grep 6443 must show 0.0.0.0:6443, then curl -sk https://<private-ip-from-step-4>:6443/version must return JSON.
+
+LOCAL (or me): register — POST /cluster/register, same clusterName, kubeApiEndpoint = https://<private-ip>:6443.
+
+GITHUB — Actions variables: MAKEWAY_KUBE_API_ENDPOINT = https://<private-ip>:6443, then run deploy-infra once more (or with step 3's apply it's already baked).
+```
